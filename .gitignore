@@ -26,3 +26,4 @@ package-lock.json
 db.json
 vectors
 docker/weaviate-data
+infra/weaviate-tei/data

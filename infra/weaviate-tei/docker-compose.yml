@@ -1,0 +1,64 @@
+version: '3'
+
+services:
+  nginx:
+    image: nginx
+    container_name: nginx
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+    ports:
+      - 8080:80
+    depends_on:
+      - text-embeddings
+
+  text-embeddings:
+    image: ghcr.io/huggingface/text-embeddings-inference:1.1
+    container_name: text-embeddings
+    volumes:
+      - ./data:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: --model-id nomic-ai/nomic-embed-text-v1.5
+    pull_policy: always
+
+  weaviate-obsidian:
+    container_name: weaviate-obsidian
+    command:
+    - --host
+    - 0.0.0.0
+    - --port
+    - '8080'
+    - --scheme
+    - http
+    image: semitechnologies/weaviate
+    ports:
+    - 3636:8080
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    restart: unless-stopped
+    environment:
+      # use this if you have used your storage more then 80%. weaviate go read only mode if you have used more then 80% storage used 
+      DISK_USE_READONLY_PERCENTAGE: 95 
+      DISK_USE_WARNING_PERCENTAGE: 90
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      DEFAULT_VECTORIZER_MODULE: 'text2vec-openai'
+      ENABLE_MODULES: 'text2vec-openai,text2vec-huggingface'
+
+
+  # If you want to use t2v-transformers vectorize module, use this and remove contextionary below
+  # t2v-transformers-obsidian:
+  #   container_name: t2v-transformers-obsidian
+  #   image: semitechnologies/transformers-inference:sentence-transformers-multi-qa-MiniLM-L6-cos-v1
+  #   restart: unless-stopped
+  #   environment:
+  #     ENABLE_CUDA: '0'
+
+volumes:
+  weaviate_data:
