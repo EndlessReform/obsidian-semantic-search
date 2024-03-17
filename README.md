@@ -1,118 +1,86 @@
-# AI Note Suggestion Plugin for Obsidian
+# Obsidian Semantic Search
 
-**AI Note Suggestion** plugin for Obsidian is designed to make your note-taking experience even more seamless. It harnesses the power of AI vector search using [Weaviate](https://weaviate.io/) to suggest similar and related notes as you type, reducing your dependency on traditional tagging systems. You can also filter notes by tags, giving you the flexibility you need.
+A simple [Obsidian editor](https://obsidian.md/) plugin, featuring:
 
-## Features:
-- **AI-Powered Suggestions:** The plugin suggests similar notes based on the content you're currently typing.
-- **Related Notes:** Discover related notes that you might have missed, enhancing your note-taking context.
-- **Tag Filtering:** If you still prefer using tags, you can filter notes by tags as well.
-- **Quick search:** Also you can quickly search anytime with command palette
+-   **Semantic search** over your notes
+-   **Similar note suggestions** to make new connections
+-   **Control over your data**:
+    -   Locally hosted vector database: [Weaviate DB](https://weaviate.io/)
+    -   Your choice of OpenAI-compatible embeddings providers
+
+Forked from Faisal Saurav's excellent [AI Note Suggestions plugin](https://github.com/echo-saurav/obsidian-ai-note-suggestion).
+
+## Warning
+
+This repo is for personal testing. Eventually I'll try to make this user-friendly: but for right now, don't try to use this yourself unless you know what you're doing.
+
+-   **This plugin is still in beta**. There are plenty of bugs and missing features.
+-   **This plugin is not on the Obsidian plugin store**.
+-   **This requires local setup**. Don't do this unless you have a decent knowledge of Docker and the CLI.
+
+## Features
+
+-   **AI-Powered Suggestions:** The plugin suggests similar notes based on the content you're currently typing.
+-   **Related Notes:** Discover related notes that you might have missed, enhancing your note-taking context.
+-   **Tag Filtering:** If you still prefer using tags, you can filter notes by tags as well.
+-   **Quick search:** Also you can quickly search anytime with command palette
 
 ![](images/1.png)
 ![](images/2.png)
 ![](images/3.png)
 ![](images/4.png)
 
-## Setting Up AI Note Suggestion
+### Roadmap
 
-To use the AI Note Suggestion plugin, you'll need to set up [Weaviate](https://weaviate.io/), an AI vector search engine. We recommend using [Docker Compose](https://docs.docker.com/compose/) for an easier setup. You can also use weaviate cloud service if you don't want to use your local machine as a server. Here are the steps to get started:
+-   [ ] Chunking for documents
+-   [ ] [Embedded Weaviate](https://weaviate.io/developers/weaviate/installation/embedded) option for desktop, if you don't want to run a Docker instance
+-   [ ] Suggested tags, from clusters
 
-**Step 1: Install Docker**
-If you don't have [Docker](https://docs.docker.com/) installed on your machine, you'll need to do so. Docker provides a platform for running [Weaviate](https://weaviate.io/) 
+## Setup guide
 
-**Step 2: Download Weaviate Using Docker Compose**
-You can check out [weaviate's install guides](https://weaviate.io/developers/weaviate/installation) for in depth information or if you are new to this follow instruction bellow,
+> NOTE: This guide assumes you're a developer with some general knowledge. If you can't follow along, you probably should wait until this plugin is released.
 
-1. Create a `docker-compose.yml` file with the following content:
+### Installing this plugin
 
-```yaml
-version: '3'
+Prerequisites:
 
-services:
-  weaviate-obsidian:
-    container_name: weaviate-obsidian
-    depends_on:
-      # - t2v-transformers-obsidian
-      - contextionary
-    command:
-    - --host
-    - 0.0.0.0
-    - --port
-    - '8080'
-    - --scheme
-    - http
-    image: semitechnologies/weaviate
-    ports:
-    - 3636:8080
-    volumes:
-      - ./weaviate-data:/var/lib/weaviate
-    restart: unless-stopped
-    environment:
-      QUERY_DEFAULTS_LIMIT: 25
-      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
-      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
-      CLUSTER_HOSTNAME: 'node1'
-      CONTEXTIONARY_URL: contextionary:9999
-      ENABLE_MODULES: 'text2vec-contextionary'
-      DEFAULT_VECTORIZER_MODULE: 'text2vec-contextionary'
+-   Git
+-   node and npm
 
-  # for light weight model (preferable if you are using cpu)
-  contextionary:
-    container_name: contextionary-obsidian
-    environment:
-      OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.75
-      EXTENSIONS_STORAGE_MODE: weaviate
-      EXTENSIONS_STORAGE_ORIGIN: http://weaviate:8080
-      NEIGHBOR_OCCURRENCE_IGNORE_PERCENTILE: 5
-      ENABLE_COMPOUND_SPLITTING: 'false'
-    image: semitechnologies/contextionary:en0.16.0-v1.2.1
-    ports:
-    - 9999:9999
-```
-here is the full compose file with other options [compose.yml](https://github.com/echo-saurav/obsidian-ai-note-suggestion/blob/main/docker/compose.yml)
+Clone this repo to the `.obsidian/plugins` folder in your vault. Make sure not to change the folder name: it must match the name in [`manifest.json`](https://docs.obsidian.md/Reference/Manifest).
 
-2. In the directory where you saved the `docker-compose.yml` file, run the following command
+Then:
+
 ```bash
-docker-compose up -d
+npm i
+npm run build
 ```
-This command pulls the Weaviate image from Docker Hub and runs it as a container on your local machine.    
 
-**Step 3: Configure AI Note Suggestion**
+Go to the Community Plugins folder in Obsidian Settings and enable.
 
-1. Once you have Weaviate up and running, go to the settings of the **AI Note Suggestion** plugin in Obsidian.
-2. In the plugin settings, provide the **Weaviate Address** where your Weaviate instance is running (usually `http://localhost:3636` if you followed the default settings)
+### Running the Weaviate database
 
+Go to Semantic Search in the Obsidian settings and provide the base URL of a working [Weaviate](https://weaviate.io/) server.
 
-Now, you're all set to enjoy the enhanced note-taking experience provided by the AI Note Suggestion plugin!
+You'll probably want to self-host a Weaviate instance using [Docker](https://www.docker.com/get-started/) and Docker Compose. This repo has some example Docker Compose stacks for you to run:
 
-## Code blocks for query
+-   **Weaviate + [text-embeddings-inference](https://huggingface.co/docs/text-embeddings-inference/index)**: This stack allows you to vectorize your notes completely self-hosted (if you have an Nvidia GPU). The default model is [Nomic Embeddings v1.5](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5). Go to `./infra/weaviate-tei` and run `docker compose up`. Default port is `localhost:3636`.
+
+### Setting up embeddings provider
+
+This repo accepts any OpenAI-compatible embeddings provider (more to come later). Note that right now chunking and caching are prtty rough, so it might get expensive. Put in the base URL and API key in settings.
+
+## Usage
+
+### Code blocks for query
+
 This is a simple code blocks for querying similar notes based on given texts
 
-  
-~~~markdown
+````markdown
 ```match
 text: one
 limit: 10
 distanceLimit: .98
 autoCut: 2
 ```
-~~~
-
-
-
-## Todo's
-- [x] Side pane list
-- [x] add yaml for code query for tags 
-- [x] Code query inside files like 
-- [x] remove code blocks when update files on weaviate
-- [x] extract tags and update file with tags
-- [x] Similar notes inside note
-- [x] add autocut settings and yaml code
-- [x] add distance threshold on settings and yaml code
-- [x] add a search command to search by similar text
-- [x] cached search result for faster query
-- [ ] Split notes by regex and upload splits note in vector for long notes
-- [ ] show status on every events (update,sync etc)
-
-
-
+````
