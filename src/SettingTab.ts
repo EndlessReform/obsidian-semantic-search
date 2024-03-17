@@ -75,6 +75,60 @@ export class MySettings extends PluginSettingTab {
 			);
 
 		containerEl.createEl("h3", {
+			text: "Embeddings settings",
+		});
+
+		new Setting(containerEl)
+			.setName("API Endpoint")
+			.setDesc(
+				"MUST trigger rebuild to apply! URL for OpenAI-compatible embeddings server. Tested with OpenAI, HuggingFace `text-embedding-inference`"
+			)
+			.addText((t) =>
+				t
+					.setPlaceholder("ex. https://api.openai.com/v1")
+					.setValue(`${this.plugin.settings.openAIBaseUrl}`)
+					.onChange(async (value) => {
+						// TODO: Validation
+						this.plugin.settings.openAIBaseUrl = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("API Key")
+			.setDesc(
+				"Secret for embedding API. Can be left blank if your embedding service doesn't need a key. If you're using OpenAI, get this from https://platform.openai.com/api-keys"
+			)
+			.addText((t) =>
+				t
+					.setPlaceholder("ex. sk-...****")
+					.setValue(`${this.plugin.settings.openAISecretKey || ""}`)
+					.onChange(async (value) => {
+						// TODO: validation
+						this.plugin.settings.openAISecretKey = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Model name")
+			.setDesc(
+				"MUST trigger rebuild to apply! Name of the embedding model you're using. Defaults to OpenAI's text-embedding-3-small"
+			)
+			.addText((t) =>
+				t
+					.setPlaceholder("ex. text-embedding-3-small")
+					.setValue(
+						`${this.plugin.settings.embeddingModelName || ""}`
+					)
+					.onChange(async (value) => {
+						// TODO: validation
+						this.plugin.settings.embeddingModelName = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		containerEl.createEl("h3", {
 			text: "Search settings",
 		});
 
@@ -138,6 +192,18 @@ export class MySettings extends PluginSettingTab {
 					})
 			);
 
+		new Setting(containerEl)
+			.setName("Cached search")
+			.setDesc("Cached search result for faster showing files")
+			.addToggle((t) =>
+				t
+					.setValue(this.plugin.settings.cacheSearch)
+					.onChange(async (v) => {
+						this.plugin.settings.cacheSearch = v;
+						await this.plugin.saveSettings();
+					})
+			);
+
 		// new Setting(containerEl)
 		//     .setName('Show Percentage on query')
 		//     .setDesc('Enable this if you want to get the match percentage info in code query')
@@ -149,11 +215,13 @@ export class MySettings extends PluginSettingTab {
 		//                 await this.plugin.saveSettings();
 		//             }))
 
+		containerEl.createEl("h3", {
+			text: "Related notes settings",
+		});
+
 		new Setting(containerEl)
 			.setName("Show similar notes on top")
-			.setDesc(
-				"If you enable this , plugin will show related notes on top of the current note"
-			)
+			.setDesc("Show related notes on top of the current note")
 			.addToggle((t) =>
 				t
 					.setValue(this.plugin.settings.inDocMatchNotes)
@@ -164,25 +232,12 @@ export class MySettings extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Show snippet of notes in Side pane view")
-			.setDesc("If you enable this , Related note's text will be shown")
+			.setName("Show snippet of notes in side pane view")
 			.addToggle((t) =>
 				t
 					.setValue(this.plugin.settings.showContent)
 					.onChange(async (v) => {
 						this.plugin.settings.showContent = v;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Cached search")
-			.setDesc("Cached search result for faster showing files")
-			.addToggle((t) =>
-				t
-					.setValue(this.plugin.settings.cacheSearch)
-					.onChange(async (v) => {
-						this.plugin.settings.cacheSearch = v;
 						await this.plugin.saveSettings();
 					})
 			);

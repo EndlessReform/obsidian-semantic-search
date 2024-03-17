@@ -1,4 +1,4 @@
-import { MarkdownView, PaneType, Plugin, TFile } from "obsidian";
+import { MarkdownView, Notice, PaneType, Plugin, TFile } from "obsidian";
 import { SIDE_PANE_VIEW_TYPE, SidePane } from "./SidePane";
 import { GetOnNoteViewExtension } from "./OnNoteViewExtension";
 import { GetSearchCodeBlock } from "./SearchCodeBlock";
@@ -6,9 +6,11 @@ import { MySettings } from "./SettingTab";
 import VectorServer from "./VectorServer";
 import { SearchNoteModal } from "./SearchNoteModal";
 
-const DEFAULT_SETTINGS: AINoteSuggestionSettings = {
+const DEFAULT_SETTINGS: Partial<AINoteSuggestionSettings> = {
 	weaviateAddress: "http://localhost:3636",
 	weaviateClass: "ObsidianVectors",
+	openAIBaseUrl: "https://api.openai.com/v1/",
+	embeddingModelName: "text-embedding-3-small",
 	limit: 30,
 	inDocMatchNotes: true,
 	showPercentageOnCodeQuery: false,
@@ -18,9 +20,16 @@ const DEFAULT_SETTINGS: AINoteSuggestionSettings = {
 	showContent: true,
 };
 
-interface AINoteSuggestionSettings {
+export interface AINoteSuggestionSettings {
 	weaviateAddress: string;
 	weaviateClass: string;
+	/**
+	 * Optional API base for OpenAI-compatible embedding server.
+	 * Defaults to OpenAI itself
+	 */
+	openAIBaseUrl?: string;
+	openAISecretKey?: string;
+	embeddingModelName?: string;
 	limit: number;
 	inDocMatchNotes: boolean;
 	showPercentageOnCodeQuery: boolean;
@@ -29,6 +38,7 @@ interface AINoteSuggestionSettings {
 	cacheSearch: boolean;
 	showContent: boolean;
 }
+
 export interface WeaviateFile {
 	content: string;
 	metadata: string;
@@ -144,10 +154,13 @@ export default class AINoteSuggestionPlugin extends Plugin {
 		// console.log"file scan size", files.length)
 		const fileCountOnServer = await this.vectorServer.countOnDatabase();
 
-		// push new file
-		await Promise.all(
-			files.map(async (file, index) => {
+		const maxFailures = 3; // Maximum number of allowed failures
+		let failureCount = 0;
+
+		for (const file of files) {
+			try {
 				const content = await this.app.vault.cachedRead(file);
+				// TODO: REMOVE!
 				if (content) {
 					await this.vectorServer.onUpdateFile(
 						content,
@@ -155,12 +168,25 @@ export default class AINoteSuggestionPlugin extends Plugin {
 						file.basename,
 						file.stat.mtime
 					);
-					// // // console.log"update file", file)
 				}
-			})
-		);
-		// delete old file
+			} catch (error) {
+				failureCount++;
+				console.error(`Error updating file: ${file.path}`, error);
+				if (failureCount > maxFailures) {
+					console.error(
+						"Too many file update failures. Aborting the process."
+					);
+					new Notice(
+						"Could not sync with Weaviate: too many update failures"
+					);
+					// Handle the error appropriately, such as displaying a notification to the user
+					// or performing any necessary cleanup tasks.
+					return; // Exit the function early
+				}
+			}
+		}
 
+		// Rest of the code for successful file updates
 		if (fileCountOnServer > files.length) {
 			const weaviateFiles: WeaviateFile[] =
 				await this.vectorServer.readAllPaths();

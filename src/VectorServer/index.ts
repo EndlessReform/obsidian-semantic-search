@@ -3,7 +3,7 @@ import weaviate, { WeaviateClient, generateUuid5 } from "weaviate-ts-client";
 import { Notice, TFile, parseYaml } from "obsidian";
 
 import MyPlugin, { WeaviateFile } from "../main";
-import { getWeaviateConf } from "./WeaviateManager";
+import WeaviateManager, { getWeaviateConf } from "./WeaviateManager";
 
 interface LocalQuery {
 	files: Array<{ files: Array<WeaviateFile>; filePath: string }>;
@@ -15,6 +15,7 @@ export default class VectorServer {
 	private weaviateClass: string;
 	private limit: number;
 	private dbFileName: string;
+	private weaviateManager: WeaviateManager;
 
 	constructor(
 		weaviateAddress: string,
@@ -25,9 +26,13 @@ export default class VectorServer {
 		this.weaviateClass = weaviateClass;
 		this.limit = limit;
 		this.plugin = plugin;
-		this.client = weaviate.client(getWeaviateConf(weaviateAddress));
+		this.client = weaviate.client(getWeaviateConf(this.plugin.settings));
 		this.dbFileName =
 			".obsidian/plugins/obsidian-ai-note-suggestion/db.json";
+		this.weaviateManager = new WeaviateManager(
+			getWeaviateConf(this.plugin.settings),
+			this.weaviateClass
+		);
 	}
 
 	async getSearchModalQueryNoteList(text: string) {
@@ -124,10 +129,6 @@ export default class VectorServer {
 		return response;
 	}
 
-	splitText(content: string) {
-		return content.split("\n");
-	}
-
 	convertToSimilarPercentage(cosine: number) {
 		const percentage = (50 * cosine - 100) * -1;
 		return percentage.toFixed(2) + "%";
@@ -166,149 +167,8 @@ export default class VectorServer {
 	}
 
 	async initClass() {
-		// get classes
-		const classDefinition = await this.client.schema.getter().do();
-
-		// check if class exist
-		let classExist = false;
-		classDefinition.classes?.forEach((classObj) => {
-			if (classObj.class == this.weaviateClass) {
-				classExist = true;
-			}
-		});
-
-		if (!classExist) {
-			const result = await this.client.schema
-				.classCreator()
-				.withClass(this.getDefaultClassDefinition())
-				.do();
-			// console.log"create class", JSON.stringify(result, null, 2));
-		}
-		return classExist;
+		await this.weaviateManager.initClasses(this.plugin.settings);
 	}
-
-	getDefaultClassDefinition() {
-		const classDefinition = {
-			class: this.weaviateClass,
-			properties: [
-				{
-					name: "content",
-					datatype: ["text"],
-				},
-				{
-					name: "metadata",
-					datatype: ["text"],
-				},
-				{
-					name: "type",
-					datatype: ["text"],
-				},
-				{
-					name: "tags",
-					datatype: ["text[]"],
-				},
-
-				{
-					name: "path",
-					datatype: ["text"],
-				},
-				{
-					name: "filename",
-					datatype: ["text"],
-				},
-				{
-					name: "mtime",
-					datatype: ["date"],
-				},
-			],
-		};
-
-		return classDefinition;
-	}
-
-	// getDefaultClassDefinition() {
-
-	//     const classDefinition = {
-	//         class: this.weaviateClass,
-	//         properties: [
-	//             {
-	//                 "name": "content",
-	//                 "datatype": ["text"],
-	//                 "moduleConfig": {
-	//                     "text2vec-transformers": {
-	//                         "skip": false,
-	//                         "vectorizePropertyName": false
-	//                     }
-	//                 }
-	//             },
-	//             {
-	//                 "name": "metadata",
-	//                 "datatype": ["text"],
-	//                 "moduleConfig": {
-	//                     "text2vec-transformers": {
-	//                         "skip": false,
-	//                         "vectorizePropertyName": false
-	//                     }
-	//                 }
-	//             },
-	//             {
-	//                 "name": "type",
-	//                 "datatype": ["text"],
-	//                 "moduleConfig": {
-	//                     "text2vec-transformers": {
-	//                         "skip": false,
-	//                         "vectorizePropertyName": false
-	//                     }
-	//                 }
-	//             },
-	//             {
-	//                 "name": "tags",
-	//                 "datatype": ["text[]"],
-	//                 "moduleConfig": {
-	//                     "text2vec-transformers": {
-	//                         "skip": false,
-	//                         "vectorizePropertyName": false
-	//                     }
-	//                 }
-	//             },
-
-	//             {
-	//                 "name": "path",
-	//                 "datatype": ["text"],
-	//                 "moduleConfig": {
-	//                     "text2vec-transformers": {
-	//                         "skip": true,
-	//                         "vectorizePropertyName": false
-	//                     }
-	//                 }
-	//             },
-	//             {
-	//                 "name": "filename",
-	//                 "datatype": ["text"],
-	//                 "moduleConfig": {
-	//                     "text2vec-transformers": {
-	//                         "skip": false,
-	//                         "vectorizePropertyName": false
-	//                     }
-	//                 }
-	//             },
-	//             {
-	//                 "name": "mtime",
-	//                 "datatype": ["date"],
-	//                 "moduleConfig": {
-	//                     "text2vec-transformers": {
-	//                         "skip": false,
-	//                         "vectorizePropertyName": false
-	//                     }
-	//                 }
-	//             },
-
-	//         ],
-	//         "vectorizer": "text2vec-transformers"
-	//     };
-
-	//     return classDefinition
-	// }
 
 	async addNew(
 		content: string,
@@ -317,24 +177,7 @@ export default class VectorServer {
 		mtime: number
 	) {
 		const cleanContent = this.getCleanDoc(content);
-
-		const dataObj = {
-			filename: filename,
-			content: cleanContent,
-			path: path,
-			mtime: this.unixTimestampToRFC3339(mtime),
-		};
-
-		const note_id = generateUuid5(path);
-
-		// console.log"add new note: " + filename + " time:" + this.unixTimestampToRFC3339(mtime))
-		return this.client.data
-			.creator()
-			.withClassName(this.weaviateClass)
-			.withProperties(dataObj)
-			.withId(note_id)
-			.do()
-			.catch((e) => {});
+		await this.weaviateManager.addNew(cleanContent, path, filename, mtime);
 	}
 
 	// update notes if needed , add new if not exist in weaviate database
@@ -376,8 +219,9 @@ export default class VectorServer {
 
 			// console.log"update note: " + filename + " time:" + this.unixTimestampToRFC3339(mtime))
 		} else if (!doesExist && isUpdated) {
-			// console.log"adding " + path)
-			this.addNew(content, path, filename, mtime);
+			// FAIL OUT
+			//console.log("adding " + path);
+			await this.addNew(content, path, filename, mtime);
 		}
 	}
 
@@ -402,23 +246,12 @@ export default class VectorServer {
 	}
 
 	async countOnDatabase() {
-		const response = await this.client.graphql
-			.aggregate()
-			.withClassName(this.weaviateClass)
-			.withFields("meta { count }")
-			.do();
-		// console.log("count", response)
-		const count =
-			response.data["Aggregate"][this.weaviateClass][0]["meta"]["count"];
-		return count;
+		const docsCount = await this.weaviateManager.docsCountOnDatabase();
+		return docsCount;
 	}
 
-	async onDeleteFile(path: string) {
-		return this.client.data
-			.deleter()
-			.withClassName(this.weaviateClass)
-			.withId(generateUuid5(path))
-			.do();
+	async onDeleteFile(path: string): Promise<void> {
+		await this.weaviateManager.deleteFile(path);
 	}
 
 	async deleteAll() {
@@ -427,7 +260,9 @@ export default class VectorServer {
 			.withClassName(this.weaviateClass)
 			.do();
 
-		new Notice("Delete successful,Rescaning files and adding to database");
+		new Notice(
+			"Delete successful. Rescanning files and adding to database"
+		);
 
 		await this.initClass().then(async () => {
 			await this.initialSyncFiles();
@@ -436,18 +271,69 @@ export default class VectorServer {
 
 	async initialSyncFiles() {
 		const files = this.plugin.app.vault.getMarkdownFiles();
-		let i = 0;
-		await Promise.all(
-			files.map(async (f, index) => {
-				// console.log("add new file", f)
-				const content = await this.plugin.app.vault.cachedRead(f);
-				await this.addNew(content, f.path, f.basename, f.stat.mtime);
-				i = i + 1;
-			})
-		);
+		let n_files_added = 0;
+		let n_errors = 0;
 
-		new Notice("Done rebuilding database");
-		new Notice(`Total file added ${i}`);
+		// Max retries per file
+		const maxRetries = 2;
+
+		console.log("Starting sync!");
+
+		for (const f of files) {
+			let retries = 0;
+			while (retries < maxRetries) {
+				try {
+					if (n_files_added > 10) {
+						break;
+					}
+
+					const content = await this.plugin.app.vault.cachedRead(f);
+					await this.addNew(
+						content,
+						f.path,
+						f.basename,
+						f.stat.mtime
+					);
+					n_files_added++;
+
+					// Sleep for a short duration to avoid making too many requests per second
+					await new Promise((resolve) => setTimeout(resolve, 50)); // Adjust the delay as needed
+
+					break;
+				} catch (error) {
+					retries++;
+					if (retries < maxRetries) {
+						console.error(
+							`Error syncing file ${f.path}. Retrying (attempt ${retries} of ${maxRetries})`,
+							error
+						);
+					} else {
+						console.error(
+							`Failed to sync file ${f.path} after ${maxRetries} retries.`,
+							error
+						);
+						n_errors++;
+					}
+				}
+			}
+
+			// Bail out if there are more than 3 errors
+			if (n_errors > 3) {
+				console.error(
+					"Too many errors encountered. Aborting the sync process."
+				);
+				new Notice(
+					"Rebuild aborted due to multiple errors. Please check the console for more details."
+				);
+				return;
+			}
+		}
+
+		if (n_files_added > 0) {
+			new Notice(
+				`Database rebuilt successfully! Total files added: ${n_files_added}`
+			);
+		}
 	}
 
 	async readAllPaths() {
