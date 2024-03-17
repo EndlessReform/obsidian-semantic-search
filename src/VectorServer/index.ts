@@ -10,33 +10,24 @@ interface LocalQuery {
 }
 
 export default class VectorServer {
-	private client: WeaviateClient;
 	private plugin: MyPlugin;
 	private weaviateClass: string;
-	private limit: number;
 	private dbFileName: string;
 	private weaviateManager: WeaviateManager;
 
-	constructor(
-		weaviateAddress: string,
-		weaviateClass: string,
-		limit: number,
-		plugin: MyPlugin
-	) {
+	constructor(weaviateClass: string, plugin: MyPlugin) {
 		this.weaviateClass = weaviateClass;
-		this.limit = limit;
 		this.plugin = plugin;
-		this.client = weaviate.client(getWeaviateConf(this.plugin.settings));
-		this.dbFileName =
-			".obsidian/plugins/obsidian-ai-note-suggestion/db.json";
+		this.dbFileName = ".obsidian/plugins/obsidian-semantic-search/db.json";
 		this.weaviateManager = new WeaviateManager(
 			getWeaviateConf(this.plugin.settings),
+			this.plugin.settings.limit,
 			this.weaviateClass
 		);
 	}
 
 	async getSearchModalQueryNoteList(text: string) {
-		return this.queryText(
+		return this.weaviateManager.queryText(
 			text,
 			[],
 			this.plugin.settings.limit,
@@ -52,7 +43,7 @@ export default class VectorServer {
 		// const tags = this.getAllTags(content)
 		// const metadata = this.extractYAMLWithoutDashes(content)
 
-		return this.queryText(
+		return this.weaviateManager.queryText(
 			`${metadataContent}\n${cleanContent}`,
 			[],
 			this.plugin.settings.limit,
@@ -67,7 +58,7 @@ export default class VectorServer {
 		// const tags = this.getAllTags(content)
 		// const metadata = this.extractYAMLWithoutDashes(content)
 
-		return this.queryText(
+		return this.weaviateManager.queryText(
 			cleanContent,
 			[],
 			this.plugin.settings.limit,
@@ -83,50 +74,13 @@ export default class VectorServer {
 		distanceLimit: number,
 		autoCut: number
 	) {
-		return this.queryText(content, tags, limit, distanceLimit, autoCut);
-	}
-
-	async queryText(
-		text: string,
-		tags: string[],
-		limit: number,
-		distanceLimit: number,
-		autoCut: number
-	) {
-		let nearText: { concepts: string[]; distance?: number } = {
-			concepts: [text],
-		};
-		// console.log(`query text: ${text.trim()}, tags: ${tags} , limit: ${limit} ,dis: ${distanceLimit}, autoCut: ${autoCut}`)
-
-		if (distanceLimit > 0) {
-			nearText = { concepts: [text.trim()], distance: distanceLimit };
-		}
-
-		const result = await this.client.graphql
-			.get()
-			.withClassName(this.weaviateClass)
-			.withNearText(nearText);
-
-		if (tags && tags.length > 0) {
-			result.withWhere({
-				path: ["tags"],
-				operator: "ContainsAny",
-				valueTextArray: tags,
-			});
-		}
-		if (autoCut > 0) {
-			result.withAutocut(autoCut);
-		}
-
-		result
-			.withLimit(limit)
-			.withFields("filename path _additional { distance }");
-		// .do()
-		// .catch(e => { })
-		const response = await result.do().catch((e) => {});
-		// .catch(e => { console.log("error query", e) })
-
-		return response;
+		return this.weaviateManager.queryText(
+			content,
+			tags,
+			limit,
+			distanceLimit,
+			autoCut
+		);
 	}
 
 	convertToSimilarPercentage(cosine: number) {
@@ -140,30 +94,12 @@ export default class VectorServer {
 		distanceLimit: number,
 		autoCut: number
 	) {
-		const note_id = generateUuid5(filePath);
-
-		let nearObject: { id: string; distance?: number } = { id: note_id };
-
-		if (distanceLimit > 0) {
-			nearObject = { id: note_id, distance: distanceLimit };
-		}
-
-		const result = this.client.graphql
-			.get()
-			.withClassName(this.weaviateClass)
-			.withNearObject(nearObject)
-			.withLimit(limit);
-
-		if (autoCut > 0) {
-			result.withAutocut(autoCut);
-		}
-
-		const response = result
-			.withFields("filename path _additional { distance }")
-			.do()
-			.catch((e) => {});
-
-		return response;
+		await this.weaviateManager.queryByDocId(
+			filePath,
+			limit,
+			distanceLimit,
+			autoCut
+		);
 	}
 
 	async initClass() {
@@ -210,12 +146,7 @@ export default class VectorServer {
 				mtime: this.unixTimestampToRFC3339(mtime),
 			};
 
-			await this.client.data
-				.merger() // merges properties into the object
-				.withId(fileStat.id)
-				.withClassName(this.weaviateClass)
-				.withProperties(newValue)
-				.do();
+			await this.weaviateManager.mergeDoc(fileStat.id, newValue);
 
 			// console.log"update note: " + filename + " time:" + this.unixTimestampToRFC3339(mtime))
 		} else if (!doesExist && isUpdated) {
@@ -229,18 +160,14 @@ export default class VectorServer {
 		mtime: number,
 		oldPath: string
 	) {
-		this.doesExist(oldPath).then((response) => {
-			this.client.data
-				.merger() // merges properties into the object
-				.withId(response[1])
-				.withClassName(this.weaviateClass)
-				.withProperties({
-					path: path,
-					filename: filename,
-					mtime: this.unixTimestampToRFC3339(mtime),
-				})
-				.do();
-		});
+		const fileStat = await this.weaviateManager.statFile(oldPath);
+		if (fileStat.fileExists && fileStat.id) {
+			await this.weaviateManager.mergeDoc(fileStat.id, {
+				path: path,
+				filename: filename,
+				mtime: this.unixTimestampToRFC3339(mtime),
+			});
+		}
 	}
 
 	async countOnDatabase() {
@@ -253,10 +180,7 @@ export default class VectorServer {
 	}
 
 	async deleteAll() {
-		await this.client.schema
-			.classDeleter()
-			.withClassName(this.weaviateClass)
-			.do();
+		await this.weaviateManager.deleteClass(this.weaviateClass);
 
 		new Notice(
 			"Delete successful. Rescanning files and adding to database"
@@ -330,44 +254,9 @@ export default class VectorServer {
 		}
 	}
 
-	async readAllPaths() {
-		const classProperties = ["path"];
-
-		const query = await this.client.graphql
-			.get()
-			.withClassName(this.weaviateClass)
-			.withFields(classProperties.join(" ") + " _additional { id }")
-			.withLimit(this.limit)
-			.do();
-
-		const files: WeaviateFile[] =
-			query["data"]["Get"][this.plugin.settings.weaviateClass];
-		return files;
-	}
-
-	async doesExist(path: string) {
-		const result = await this.client.graphql
-			.get()
-			.withClassName(this.weaviateClass)
-			.withWhere({
-				path: ["path"],
-				operator: "Equal",
-				valueText: path,
-			})
-			.withFields(["filename", "mtime"].join(" ") + " _additional { id }")
-			.do();
-
-		const resultLength = result.data["Get"][this.weaviateClass].length;
-
-		if (resultLength > 0) {
-			const id =
-				result.data["Get"][this.weaviateClass][0]["_additional"]["id"];
-			const mtime = result.data["Get"][this.weaviateClass][0]["mtime"];
-
-			return [true, id, mtime];
-		} else {
-			return [false, 0, 0];
-		}
+	async readAllPaths(): Promise<WeaviateFile[]> {
+		const paths = await this.weaviateManager.getAllPaths();
+		return paths;
 	}
 
 	unixTimestampToRFC3339(unixTimestamp: number): string {

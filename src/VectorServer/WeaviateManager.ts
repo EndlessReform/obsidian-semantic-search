@@ -4,7 +4,7 @@ import weaviate, {
 	WeaviateClass,
 	generateUuid5,
 } from "weaviate-ts-client";
-import { AINoteSuggestionSettings } from "../main";
+import { AINoteSuggestionSettings, WeaviateFile } from "../main";
 
 export function getWeaviateConf(
 	settings: AINoteSuggestionSettings
@@ -108,11 +108,17 @@ function createOpenAiClassDef(
 
 export default class WeaviateManager {
 	private docsClassName: string;
+	private limit: number;
 	client: WeaviateClient;
 
-	constructor(weaviateConf: ConnectionParams, docsClassName: string) {
+	constructor(
+		weaviateConf: ConnectionParams,
+		limit: number,
+		docsClassName: string
+	) {
 		this.docsClassName = docsClassName;
 		this.client = weaviate.client(weaviateConf);
+		this.limit = limit;
 	}
 
 	/**
@@ -217,11 +223,25 @@ export default class WeaviateManager {
 	}
 
 	/** Delete single document from Weaviate, identified by path */
-	async deleteFile(path: string) {
+	async deleteFile(path: string): Promise<void> {
 		return this.client.data
 			.deleter()
 			.withClassName(this.docsClassName)
 			.withId(generateUuid5(path))
+			.do();
+	}
+
+	async deleteClass(className: string): Promise<void> {
+		await this.client.schema.classDeleter().withClassName(className).do();
+	}
+
+	/** Merge doc with old name to new property set (and ID) */
+	async mergeDoc(old_id: string, properties: any) {
+		await this.client.data
+			.merger()
+			.withId(old_id)
+			.withClassName(this.docsClassName)
+			.withProperties(properties)
 			.do();
 	}
 
@@ -235,6 +255,88 @@ export default class WeaviateManager {
 		const count =
 			response.data["Aggregate"][this.docsClassName][0]["meta"]["count"];
 		return count;
+	}
+
+	async queryText(
+		text: string,
+		tags: string[],
+		limit: number,
+		distanceLimit: number,
+		autoCut: number
+	) {
+		let nearText: { concepts: string[]; distance?: number } = {
+			concepts: [text.trim()],
+			distance: distanceLimit > 0 ? distanceLimit : undefined,
+		};
+
+		const result = this.client.graphql
+			.get()
+			.withClassName(this.docsClassName)
+			.withNearText(nearText);
+
+		if (tags && tags.length > 0) {
+			result.withWhere({
+				path: ["tags"],
+				operator: "ContainsAny",
+				valueTextArray: tags,
+			});
+		}
+		if (autoCut > 0) {
+			result.withAutocut(autoCut);
+		}
+
+		result
+			.withLimit(limit)
+			.withFields("filename path _additional { distance }");
+
+		const response = await result.do();
+
+		return response;
+	}
+
+	async queryByDocId(
+		filePath: string,
+		limit: number,
+		distanceLimit: number,
+		autoCut: number
+	) {
+		const note_id = generateUuid5(filePath);
+
+		let nearObject: { id: string; distance?: number } = { id: note_id };
+
+		if (distanceLimit > 0) {
+			nearObject = { id: note_id, distance: distanceLimit };
+		}
+
+		const result = this.client.graphql
+			.get()
+			.withClassName(this.docsClassName)
+			.withNearObject(nearObject)
+			.withLimit(limit);
+
+		if (autoCut > 0) {
+			result.withAutocut(autoCut);
+		}
+
+		const response = await result
+			.withFields("filename path _additional { distance }")
+			.do();
+
+		return response;
+	}
+
+	async getAllPaths(): Promise<WeaviateFile[]> {
+		const classProperties = ["path"];
+
+		const query = await this.client.graphql
+			.get()
+			.withClassName(this.docsClassName)
+			.withFields(classProperties.join(" ") + " _additional { id }")
+			.withLimit(this.limit)
+			.do();
+
+		const files: WeaviateFile[] = query["data"]["Get"][this.docsClassName];
+		return files;
 	}
 
 	/** Converts to ISO format */

@@ -65,12 +65,7 @@ export default class AINoteSuggestionPlugin extends Plugin {
 		await this.loadSettings();
 		this.addSettingTab(new MySettings(this.app, this));
 		this.statusBarItemEl = this.addStatusBarItem();
-		this.vectorServer = new VectorServer(
-			this.settings.weaviateAddress,
-			this.settings.weaviateClass,
-			this.settings.limit,
-			this
-		);
+		this.vectorServer = new VectorServer(this.settings.weaviateClass, this);
 
 		// show on hover settings
 		this.registerHoverLinkSource(SIDE_PANE_HOVER_ID, {
@@ -149,7 +144,7 @@ export default class AINoteSuggestionPlugin extends Plugin {
 
 	// initial scan ran on load and on setting changed
 	async scanVault() {
-		const classExist = await this.vectorServer.initClass();
+		await this.vectorServer.initClass();
 		const files = this.app.vault.getMarkdownFiles();
 		// console.log"file scan size", files.length)
 		const fileCountOnServer = await this.vectorServer.countOnDatabase();
@@ -160,7 +155,6 @@ export default class AINoteSuggestionPlugin extends Plugin {
 		for (const file of files) {
 			try {
 				const content = await this.app.vault.cachedRead(file);
-				// TODO: REMOVE!
 				if (content) {
 					await this.vectorServer.onUpdateFile(
 						content,
@@ -179,9 +173,7 @@ export default class AINoteSuggestionPlugin extends Plugin {
 					new Notice(
 						"Could not sync with Weaviate: too many update failures"
 					);
-					// Handle the error appropriately, such as displaying a notification to the user
-					// or performing any necessary cleanup tasks.
-					return; // Exit the function early
+					return;
 				}
 			}
 		}
