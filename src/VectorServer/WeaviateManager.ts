@@ -6,6 +6,9 @@ import weaviate, {
 } from "weaviate-ts-client";
 import { AINoteSuggestionSettings, WeaviateFile } from "../main";
 
+/**
+ * Coupled to OpenAI for now
+ */
 export function getWeaviateConf(
 	settings: AINoteSuggestionSettings
 ): ConnectionParams {

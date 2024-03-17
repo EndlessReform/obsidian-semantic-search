@@ -1,5 +1,3 @@
-// import { generateUuid5 } from 'weaviate-ts-client';
-import weaviate, { WeaviateClient, generateUuid5 } from "weaviate-ts-client";
 import { Notice, TFile, parseYaml } from "obsidian";
 
 import MyPlugin, { WeaviateFile } from "../main";
