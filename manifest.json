@@ -1,10 +1,10 @@
 {
-	"id": "ai-note-suggestion",
-	"name": "AI Note Suggestion",
-	"version": "0.1.8",
+	"id": "semantic-search",
+	"name": "Semantic Search",
+	"version": "0.1.0",
 	"minAppVersion": "0.15.0",
-	"description": "This plugin shows semantically related notes and filer notes by tags using power of A.I (Vector search)",
-	"author": "echo-saurav",
+	"description": "AI-powered search and organization for your notes",
+	"author": "EndlessReform",
 	"authorUrl": "",
 	"fundingUrl": "",
 	"isDesktopOnly": false
