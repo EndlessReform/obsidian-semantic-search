@@ -23,6 +23,13 @@ export function getWeaviateConf(
 	};
 }
 
+interface FileStat {
+	fileExists: boolean;
+	id?: string;
+	/** RFC 3339 date */
+	mtime?: string;
+}
+
 function createOpenAiClassDef(
 	className: string,
 	baseURL?: string,
@@ -175,6 +182,38 @@ export default class WeaviateManager {
 			.withId(note_id)
 			.do();
 		return addResponse;
+	}
+
+	async statFile(path: string): Promise<FileStat> {
+		const result = await this.client.graphql
+			.get()
+			.withClassName(this.docsClassName)
+			.withWhere({
+				path: ["path"],
+				operator: "Equal",
+				valueText: path,
+			})
+			.withFields(["filename", "mtime"].join(" ") + " _additional { id }")
+			.do();
+
+		const resultLength = result.data["Get"][this.docsClassName].length;
+		if (resultLength > 0) {
+			const id =
+				result.data["Get"][this.docsClassName][0]["_additional"]["id"];
+			const mtime = result.data["Get"][this.docsClassName][0]["mtime"];
+
+			return {
+				fileExists: true,
+				id,
+				mtime,
+			};
+		} else {
+			return {
+				fileExists: false,
+				id: undefined,
+				mtime: undefined,
+			};
+		}
 	}
 
 	/** Delete single document from Weaviate, identified by path */

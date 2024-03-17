@@ -180,18 +180,20 @@ export default class VectorServer {
 		await this.weaviateManager.addNew(cleanContent, path, filename, mtime);
 	}
 
-	// update notes if needed , add new if not exist in weaviate database
+	/**
+	 * Upserts file if local version ahead of Weaviate
+	 */
 	async onUpdateFile(
 		content: string,
 		path: string,
 		filename: string,
 		mtime: number
 	) {
-		const res = await this.doesExist(path);
-		const doesExist = res[0];
-		const id = res[1];
-		const oldMtime = res[2];
-		const isUpdated = mtime - this.rfc3339ToUnixTimestamp(oldMtime) > 0;
+		const fileStat = await this.weaviateManager.statFile(path);
+		const doesExist = fileStat.fileExists;
+		const isUpdated =
+			!fileStat.mtime ||
+			mtime - this.rfc3339ToUnixTimestamp(fileStat.mtime) > 0;
 
 		const cleanContent = this.getCleanDoc(content);
 		const tags = this.getAllTags(content);
@@ -199,7 +201,7 @@ export default class VectorServer {
 
 		// const yamlContent = this.objectToArray(this.extractYAMLWithoutDashes(content))
 
-		if (doesExist && isUpdated) {
+		if (doesExist && isUpdated && fileStat.id) {
 			// console.log("updating " + path)
 			const newValue = {
 				content: cleanContent,
@@ -208,19 +210,15 @@ export default class VectorServer {
 				mtime: this.unixTimestampToRFC3339(mtime),
 			};
 
-			// console.log"newValue", newValue)
-
 			await this.client.data
 				.merger() // merges properties into the object
-				.withId(id)
+				.withId(fileStat.id)
 				.withClassName(this.weaviateClass)
 				.withProperties(newValue)
 				.do();
 
 			// console.log"update note: " + filename + " time:" + this.unixTimestampToRFC3339(mtime))
 		} else if (!doesExist && isUpdated) {
-			// FAIL OUT
-			//console.log("adding " + path);
 			await this.addNew(content, path, filename, mtime);
 		}
 	}
@@ -255,7 +253,7 @@ export default class VectorServer {
 	}
 
 	async deleteAll() {
-		const result = await this.client.schema
+		await this.client.schema
 			.classDeleter()
 			.withClassName(this.weaviateClass)
 			.do();
@@ -277,16 +275,12 @@ export default class VectorServer {
 		// Max retries per file
 		const maxRetries = 2;
 
-		console.log("Starting sync!");
+		console.info("Starting initial sync!");
 
 		for (const f of files) {
 			let retries = 0;
 			while (retries < maxRetries) {
 				try {
-					if (n_files_added > 10) {
-						break;
-					}
-
 					const content = await this.plugin.app.vault.cachedRead(f);
 					await this.addNew(
 						content,
