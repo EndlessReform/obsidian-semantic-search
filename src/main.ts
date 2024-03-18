@@ -112,6 +112,8 @@ export default class AINoteSuggestionPlugin extends Plugin {
 		if (file instanceof TFile) {
 			const fileContent = await this.app.vault.cachedRead(file);
 			// console.log("modify content", fileContent)
+			const metadata = this.app.metadataCache.getFileCache(file);
+			console.debug(metadata);
 
 			if (fileContent)
 				this.vectorServer.onUpdateFile(
@@ -200,11 +202,15 @@ export default class AINoteSuggestionPlugin extends Plugin {
 	registerEvents() {
 		// console.log("register events")
 
-		this.registerEvent(
-			this.app.vault.on("create", (file) => {
-				if (file instanceof TFile) this.onCreate(file);
-			})
+		this.app.workspace.onLayoutReady(() =>
+			// Avoid spurious "creation" requests
+			this.registerEvent(
+				this.app.vault.on("create", (file) => {
+					if (file instanceof TFile) this.onCreate(file);
+				})
+			)
 		);
+
 		this.registerEvent(
 			this.app.vault.on("modify", (file) => {
 				if (file instanceof TFile) this.onModify(file);
