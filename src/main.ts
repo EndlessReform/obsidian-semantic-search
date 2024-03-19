@@ -5,6 +5,8 @@ import { GetSearchCodeBlock } from "./SearchCodeBlock";
 import { MySettings } from "./SettingTab";
 import VectorServer from "./VectorServer";
 import { SearchNoteModal } from "./SearchNoteModal";
+// TODO: Remove this ASAP!
+import { buildDocTree, chunksFromSections } from "./document";
 
 const DEFAULT_SETTINGS: Partial<AINoteSuggestionSettings> = {
 	weaviateAddress: "http://localhost:3636",
@@ -113,7 +115,21 @@ export default class AINoteSuggestionPlugin extends Plugin {
 			const fileContent = await this.app.vault.cachedRead(file);
 			// console.log("modify content", fileContent)
 			const metadata = this.app.metadataCache.getFileCache(file);
-			console.debug(metadata);
+			if (typeof metadata?.sections !== "undefined") {
+				// By invariant, no headings in sections without a full headings array
+				const tree = buildDocTree(
+					metadata?.sections,
+					metadata?.headings ? metadata.headings : []
+				);
+				const chunk_borders = chunksFromSections(tree, 1024);
+				for (let chunk of chunk_borders) {
+					console.debug(
+						fileContent
+							.slice(chunk.start_offset, chunk.end_offset)
+							.trim()
+					);
+				}
+			}
 
 			if (fileContent)
 				this.vectorServer.onUpdateFile(

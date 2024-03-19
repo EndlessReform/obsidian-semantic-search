@@ -42,34 +42,158 @@ class SectionNode {
 	}
 }
 
-// TODO
-function buildDocTree(
+export function buildDocTree(
 	sections: SectionCache[],
 	headings: HeadingCache[]
 ): SectionNode[] {
 	const roots: SectionNode[] = [];
-	const lastInserted: number[] = [0];
 
-	// TODO: Handle frontmatter!
-	if (sections[0].type !== "heading") {
-	} else if (sections[0].type !== "heading") {
-		roots.push(new SectionNode("h0", 0, 0, 0));
+	// Strip out frontmatter since we're not embedding
+	if (sections[0].type === "yaml") {
+		sections = sections.slice(1);
 	}
+
+	// Handle common case where document does not start with heading
+	if (sections[0].type !== "heading") {
+		roots.push(
+			new SectionNode(
+				"h0",
+				0,
+				sections[0].position.start.offset,
+				sections[0].position.end.offset
+			)
+		);
+	}
+
+	// Memoize last heading node in tree
+	let parent: SectionNode = roots[0];
 
 	for (const section of sections) {
 		if (section.type === "heading") {
 			const heading = headings.shift()!;
 			const level = heading.level;
 
-			let parent = roots[roots.length - 1];
-			// TODO: Check this handles H0 correctly
-			// Recurse down until find
-			while (level <= parent.headingLevel && parent.headingLevel > 1) {
-				parent = parent.children[parent.children.length - 1];
+			const new_node = new SectionNode(
+				section.type,
+				level,
+				section.position.start.offset,
+				section.position.end.offset
+			);
+
+			let new_parent = roots[roots.length - 1];
+			if (
+				typeof new_parent === "undefined" ||
+				level <= new_parent.headingLevel ||
+				new_parent.headingLevel === 0
+			) {
+				// New heading is top-level
+				roots.push(new_node);
+			} else {
+				// Start from top and go down tree to find parent (ex. h3 = h2 + 1).
+				// Leads to O(n log d), but d <= 6 (it's Markdown) and most nodes aren't headings,
+				// so I can't be bothered
+				while (level > new_parent.headingLevel + 1) {
+					new_parent =
+						new_parent.children[new_parent.children.length - 1];
+				}
+				new_parent.addLastChild(new_node);
 			}
+			parent = new_node;
+		} else {
+			// Child of previous heading
+			parent.addLastChild(
+				new SectionNode(
+					section.type,
+					parent.headingLevel + 1,
+					section.position.start.offset,
+					section.position.end.offset
+				)
+			);
 		}
 	}
 
-	// TODO: Fix this
-	return [];
+	return roots;
+}
+
+interface Chunk {
+	start_offset: number;
+	end_offset: number;
+}
+
+export function chunksFromSections(
+	sections: SectionNode[],
+	target_nchars: number
+): Chunk[] {
+	if (sections.length === 0) {
+		return [];
+	}
+
+	// Placeholder
+	let chunks: Chunk[] = [];
+	let buffer: Chunk = {
+		start_offset: sections[0].start,
+		end_offset: Infinity,
+	};
+
+	sections.reverse();
+	while (sections.length > 0) {
+		let section = sections.pop();
+		if (typeof section === "undefined") {
+			throw new Error(
+				"Only writing this to shut up TS, this will never happen by invariant"
+			);
+		} else {
+			let dims = section.getDims();
+			if (dims.end - dims.start > target_nchars) {
+				if (section.children.length > 0) {
+					// Section is too big but can be split: push children onto stack (in reverse order)
+					sections = sections.concat(section.children.reverse());
+					continue;
+				} else {
+					chunks.push(buffer);
+
+					// Section is a really long content block.
+					// We have no idea what's in here, so arbitrarily split it into roughly target_nchars sized chunks
+					// A bit inelegant, but will work for now (plenty of fudge factor: 8192 embeddings, targeting ~1024!)
+					let safe_length = Math.round(target_nchars * 0.9);
+					let start = dims.start;
+					while (start < dims.end) {
+						let end = Math.min(start + safe_length, dims.end);
+
+						if (end === dims.end && chunks.length > 0) {
+							// If this is the last chunk and there are existing chunks,
+							// append this chunk to the previous one
+							let lastChunk = chunks[chunks.length - 1];
+							lastChunk.end_offset = end;
+							// Imperatively set buffer
+							buffer = {
+								start_offset: end,
+								end_offset: Infinity,
+							};
+						} else {
+							chunks.push({
+								start_offset: start,
+								end_offset: end,
+							});
+						}
+
+						start = end;
+					}
+				}
+			} else {
+				// Section can (in theory) fit into a single chunk. Try adding to buffer chunk
+				if (dims.end - buffer.start_offset < target_nchars) {
+					buffer.end_offset = dims.end;
+				} else {
+					chunks.push(buffer);
+					buffer = {
+						start_offset: buffer.end_offset,
+						end_offset: dims.end,
+					};
+				}
+			}
+		}
+	}
+	chunks.push(buffer);
+	return chunks;
 }
