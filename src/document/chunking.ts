@@ -121,76 +121,70 @@ interface Chunk {
 }
 
 export function chunksFromSections(
-	sections: SectionNode[],
-	target_nchars: number
+	sectionNodes: SectionNode[],
+	maxChunkChars: number
 ): Chunk[] {
-	if (sections.length === 0) {
+	if (sectionNodes.length === 0) {
 		return [];
 	}
 
-	// Placeholder
 	let chunks: Chunk[] = [];
 	let buffer: Chunk = {
-		start_offset: sections[0].start,
+		start_offset: sectionNodes[0].start,
+		// By invariant now, buffer end_offset will be written at least once, so this is fine
 		end_offset: Infinity,
 	};
 
-	sections.reverse();
-	while (sections.length > 0) {
-		let section = sections.pop();
-		if (typeof section === "undefined") {
-			throw new Error(
-				"Only writing this to shut up TS, this will never happen by invariant"
-			);
-		} else {
-			let dims = section.getDims();
-			if (dims.end - dims.start > target_nchars) {
-				if (section.children.length > 0) {
-					// Section is too big but can be split: push children onto stack (in reverse order)
-					sections = sections.concat(section.children.reverse());
-					continue;
-				} else {
-					chunks.push(buffer);
-
-					// Section is a really long content block.
-					// We have no idea what's in here, so arbitrarily split it into roughly target_nchars sized chunks
-					// A bit inelegant, but will work for now (plenty of fudge factor: 8192 embeddings, targeting ~1024!)
-					let safe_length = Math.round(target_nchars * 0.9);
-					let start = dims.start;
-					while (start < dims.end) {
-						let end = Math.min(start + safe_length, dims.end);
-
-						if (end === dims.end && chunks.length > 0) {
-							// If this is the last chunk and there are existing chunks,
-							// append this chunk to the previous one
-							let lastChunk = chunks[chunks.length - 1];
-							lastChunk.end_offset = end;
-							// Imperatively set buffer
-							buffer = {
-								start_offset: end,
-								end_offset: Infinity,
-							};
-						} else {
-							chunks.push({
-								start_offset: start,
-								end_offset: end,
-							});
-						}
-
-						start = end;
-					}
-				}
+	let reversedSections = [...sectionNodes.reverse()];
+	while (reversedSections.length > 0) {
+		let section = reversedSections.pop()!;
+		let dims = section.getDims();
+		if (dims.end - dims.start > maxChunkChars) {
+			if (section.children.length > 0) {
+				// Section is too big but can be split: push children onto stack (in reverse order)
+				reversedSections.push(...section.children.reverse());
+				continue;
 			} else {
-				// Section can (in theory) fit into a single chunk. Try adding to buffer chunk
-				if (dims.end - buffer.start_offset < target_nchars) {
-					buffer.end_offset = dims.end;
-				} else {
-					chunks.push(buffer);
-					buffer = {
-						start_offset: buffer.end_offset,
-						end_offset: dims.end,
-					};
+				chunks.push(buffer);
+
+				// Section is a really long content block.
+				// We have no idea what's in here, so arbitrarily split it into roughly target_nchars sized chunks
+				// A bit inelegant, but will work for now (plenty of fudge factor: 8192 embeddings, targeting ~1024!)
+				let safe_length = Math.round(maxChunkChars * 0.9);
+				let start = dims.start;
+				while (start < dims.end) {
+					let end = Math.min(start + safe_length, dims.end);
+
+					if (end === dims.end && chunks.length > 0) {
+						// If this is the last chunk and there are existing chunks,
+						// append this chunk to the previous one
+						let lastChunk = chunks[chunks.length - 1];
+						lastChunk.end_offset = end;
+						// Imperatively set buffer
+						buffer = {
+							start_offset: end,
+							end_offset: Infinity,
+						};
+					} else {
+						chunks.push({
+							start_offset: start,
+							end_offset: end,
+						});
+					}
+
+					start = end;
 				}
+			}
+		} else {
+			// Section can (in theory) fit into a single chunk. Try adding to buffer chunk
+			if (dims.end - buffer.start_offset < maxChunkChars) {
+				buffer.end_offset = dims.end;
+			} else {
+				chunks.push(buffer);
+				buffer = {
+					start_offset: buffer.end_offset,
+					end_offset: dims.end,
+				};
 			}
 		}
 	}
