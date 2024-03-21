@@ -1,7 +1,8 @@
-import { Notice, TFile, parseYaml } from "obsidian";
+import { CachedMetadata, Notice, TFile, parseYaml } from "obsidian";
 
 import MyPlugin, { WeaviateFile } from "../main";
 import WeaviateManager, { getWeaviateConf } from "./WeaviateManager";
+import { buildDocTree, chunksFromSections } from "../document";
 
 interface LocalQuery {
 	files: Array<{ files: Array<WeaviateFile>; filePath: string }>;
@@ -36,13 +37,11 @@ export default class VectorServer {
 
 	async getExtensionNoteList(file: TFile) {
 		const content = await this.plugin.app.vault.cachedRead(file);
+		// TODO: Remove this!
 		const cleanContent = this.getCleanDoc(content);
-		const metadataContent = this.extractYAMLWithoutDashes(content);
-		// const tags = this.getAllTags(content)
-		// const metadata = this.extractYAMLWithoutDashes(content)
 
 		return this.weaviateManager.queryText(
-			`${metadataContent}\n${cleanContent}`,
+			cleanContent,
 			[],
 			this.plugin.settings.limit,
 			this.plugin.settings.distanceLimit,
@@ -53,8 +52,6 @@ export default class VectorServer {
 	async getSidePaneNoteList(file: TFile) {
 		const content = await this.plugin.app.vault.cachedRead(file);
 		const cleanContent = this.getCleanDoc(content);
-		// const tags = this.getAllTags(content)
-		// const metadata = this.extractYAMLWithoutDashes(content)
 
 		return this.weaviateManager.queryText(
 			cleanContent,
@@ -100,7 +97,7 @@ export default class VectorServer {
 		);
 	}
 
-	async initClass() {
+	async initDBClass() {
 		await this.weaviateManager.initClasses(this.plugin.settings);
 	}
 
@@ -119,6 +116,7 @@ export default class VectorServer {
 	 */
 	async onUpdateFile(
 		content: string,
+		metadata: CachedMetadata | null,
 		path: string,
 		filename: string,
 		mtime: number
@@ -129,17 +127,28 @@ export default class VectorServer {
 			!fileStat.mtime ||
 			mtime - this.rfc3339ToUnixTimestamp(fileStat.mtime) > 0;
 
-		const cleanContent = this.getCleanDoc(content);
-		const tags = this.getAllTags(content);
-		const metadata = this.extractYAMLWithoutDashes(content);
+		if (typeof metadata?.sections !== "undefined") {
+			// By invariant, no headings in sections without a full headings array
+			const tree = buildDocTree(
+				metadata?.sections,
+				metadata?.headings ? metadata.headings : []
+			);
+			const chunk_borders = chunksFromSections(tree, 1024);
+			for (let chunk of chunk_borders) {
+				console.debug(
+					content.slice(chunk.start_offset, chunk.end_offset).trim()
+				);
+			}
+		}
 
-		// const yamlContent = this.objectToArray(this.extractYAMLWithoutDashes(content))
+		const cleanContent = this.getCleanDoc(content);
+		const tags = metadata?.tags?.map((t) => t.tag);
 
 		if (doesExist && isUpdated && fileStat.id) {
 			// console.log("updating " + path)
 			const newValue = {
 				content: cleanContent,
-				metadata: metadata,
+				metadata: metadata?.frontmatter,
 				tags: tags,
 				mtime: this.unixTimestampToRFC3339(mtime),
 			};
@@ -184,7 +193,7 @@ export default class VectorServer {
 			"Delete successful. Rescanning files and adding to database"
 		);
 
-		await this.initClass().then(async () => {
+		await this.initDBClass().then(async () => {
 			await this.initialSyncFiles();
 		});
 	}
@@ -289,41 +298,6 @@ export default class VectorServer {
 		);
 
 		return markdownWithoutCodeBlocks;
-	}
-
-	extractYAMLWithoutDashes(markdownContent: string) {
-		// Define a regular expression to match YAML front matter without the dashes
-		const yamlFrontMatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n/;
-
-		// Use the regular expression to extract YAML content
-		const match = markdownContent.match(yamlFrontMatterRegex);
-
-		// If a match is found, return the YAML content without dashes
-
-		if (match && match[1]) {
-			const yaml_string = match[1].trim();
-			return yaml_string;
-			// return parseYaml(yaml_string)
-		} else {
-			return "";
-		}
-	}
-
-	getAllTags(inputString: string) {
-		const yaml = parseYaml(this.extractYAMLWithoutDashes(inputString));
-		const yamlTags: Array<string> =
-			yaml && yaml["tags"] ? yaml["tags"] : [];
-
-		const regex = /#(\w+)/g;
-
-		const tags = inputString.match(regex);
-		const cleanTags = tags ? tags.map((match) => match.slice(1)) : [];
-
-		if (tags || yamlTags) {
-			return yamlTags.concat(cleanTags);
-		} else {
-			return [];
-		}
 	}
 
 	async readCache() {

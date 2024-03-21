@@ -5,8 +5,6 @@ import { GetSearchCodeBlock } from "./SearchCodeBlock";
 import { MySettings } from "./SettingTab";
 import VectorServer from "./VectorServer";
 import { SearchNoteModal } from "./SearchNoteModal";
-// TODO: Remove this ASAP!
-import { buildDocTree, chunksFromSections } from "./document";
 
 const DEFAULT_SETTINGS: Partial<AINoteSuggestionSettings> = {
 	weaviateAddress: "http://localhost:3636",
@@ -99,46 +97,34 @@ export default class AINoteSuggestionPlugin extends Plugin {
 	async onCreate(file: TFile) {
 		if (file instanceof TFile) {
 			const fileContent = await this.app.vault.cachedRead(file);
-			// console.log("new file content", fileContent)
-			if (fileContent)
+			if (fileContent) {
+				const metadata = this.app.metadataCache.getFileCache(file);
 				this.vectorServer.onUpdateFile(
 					fileContent,
+					metadata,
 					file.path,
 					file.basename,
 					file.stat.mtime
 				);
+			}
 		}
 	}
 
 	async onModify(file: TFile) {
 		if (file instanceof TFile) {
 			const fileContent = await this.app.vault.cachedRead(file);
-			// console.log("modify content", fileContent)
-			const metadata = this.app.metadataCache.getFileCache(file);
-			if (typeof metadata?.sections !== "undefined") {
-				// By invariant, no headings in sections without a full headings array
-				const tree = buildDocTree(
-					metadata?.sections,
-					metadata?.headings ? metadata.headings : []
-				);
-				const chunk_borders = chunksFromSections(tree, 1024);
-				for (let chunk of chunk_borders) {
-					console.debug(
-						fileContent
-							.slice(chunk.start_offset, chunk.end_offset)
-							.trim()
-					);
-				}
-			}
-
-			if (fileContent)
+			if (fileContent) {
+				const metadata = this.app.metadataCache.getFileCache(file);
 				this.vectorServer.onUpdateFile(
 					fileContent,
+					metadata,
 					file.path,
 					file.basename,
 					file.stat.mtime
 				);
-			else this.vectorServer.onDeleteFile(file.path);
+			} else {
+				this.vectorServer.onDeleteFile(file.path);
+			}
 		}
 	}
 
@@ -162,7 +148,7 @@ export default class AINoteSuggestionPlugin extends Plugin {
 
 	// initial scan ran on load and on setting changed
 	async scanVault() {
-		await this.vectorServer.initClass();
+		await this.vectorServer.initDBClass();
 		const files = this.app.vault.getMarkdownFiles();
 		// console.log"file scan size", files.length)
 		const fileCountOnServer = await this.vectorServer.countOnDatabase();
@@ -174,8 +160,10 @@ export default class AINoteSuggestionPlugin extends Plugin {
 			try {
 				const content = await this.app.vault.cachedRead(file);
 				if (content) {
+					const metadata = this.app.metadataCache.getFileCache(file);
 					await this.vectorServer.onUpdateFile(
 						content,
+						metadata,
 						file.path,
 						file.basename,
 						file.stat.mtime

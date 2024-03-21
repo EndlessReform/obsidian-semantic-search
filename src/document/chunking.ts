@@ -157,10 +157,9 @@ export function chunksFromSections(
 
 					if (end === dims.end && chunks.length > 0) {
 						// If this is the last chunk and there are existing chunks,
-						// append this chunk to the previous one
+						// append this chunk to the previous one and set buffer
 						let lastChunk = chunks[chunks.length - 1];
 						lastChunk.end_offset = end;
-						// Imperatively set buffer
 						buffer = {
 							start_offset: end,
 							end_offset: Infinity,
