@@ -18,7 +18,7 @@ export class MySettings extends PluginSettingTab {
 			.setDesc("Loading info...");
 
 		this.plugin.vectorServer
-			.countOnDatabase()
+			.fileCountOnDatabase()
 			.then((count) => {
 				const localFileCount =
 					this.plugin.app.vault.getMarkdownFiles().length;

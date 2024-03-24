@@ -5,6 +5,7 @@ import weaviate, {
 	generateUuid5,
 } from "weaviate-ts-client";
 import { AINoteSuggestionSettings, WeaviateFile } from "../main";
+import { Chunk, createOpenAIChunkClass } from "src/chunks";
 
 /**
  * Coupled to OpenAI for now
@@ -26,87 +27,11 @@ export function getWeaviateConf(
 	};
 }
 
-interface FileStat {
+export interface FileStat {
 	fileExists: boolean;
 	id?: string;
 	/** RFC 3339 date */
 	mtime?: string;
-}
-
-function createOpenAiClassDef(
-	className: string,
-	baseURL?: string,
-	model?: string
-): Partial<WeaviateClass> {
-	// See https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-openai
-	const classDefinition = {
-		class: className,
-		description: "Documents for an Obsidian Vault",
-		properties: [
-			{
-				name: "path",
-				datatype: ["text"],
-				moduleConfig: {
-					"text2vec-openai": {
-						skip: "true",
-					},
-				},
-			},
-			{
-				name: "filename",
-				datatype: ["text"],
-			},
-			{
-				name: "mtime",
-				datatype: ["date"],
-				moduleConfig: {
-					"text2vec-openai": {
-						skip: "true",
-					},
-				},
-			},
-			{
-				name: "type",
-				datatype: ["text"],
-				moduleConfig: {
-					"text2vec-openai": {
-						skip: "true",
-					},
-				},
-			},
-			{
-				name: "metadata",
-				datatype: ["text"],
-				moduleConfig: {
-					"text2vec-openai": {
-						skip: "true",
-					},
-				},
-			},
-			{
-				name: "tags",
-				datatype: ["text[]"],
-				moduleConfig: {
-					"text2vec-openai": {
-						skip: "true",
-					},
-				},
-			},
-			{
-				name: "content",
-				datatype: ["text"],
-			},
-		],
-		vectorizer: "text2vec-openai",
-		moduleConfig: {
-			"text2vec-openai": {
-				type: "text",
-				model: model || "text-embedding-3-small",
-				baseURL,
-			},
-		},
-	};
-	return classDefinition;
 }
 
 export default class WeaviateManager {
@@ -143,7 +68,7 @@ export default class WeaviateManager {
 				await this.client.schema
 					.classCreator()
 					.withClass(
-						createOpenAiClassDef(
+						createOpenAIChunkClass(
 							this.docsClassName,
 							settings.openAIBaseUrl,
 							settings.embeddingModelName
@@ -191,6 +116,37 @@ export default class WeaviateManager {
 			.withId(note_id)
 			.do();
 		return addResponse;
+	}
+
+	/**
+	 * Retrieve chunk metadata for path. Possibly empty if file doesn't exist.
+	 */
+	async getFileChunkHashes(path: string): Promise<
+		{
+			hash: string;
+			start: number;
+			end: number;
+			_additional: { id: string };
+		}[]
+	> {
+		const result = await this.client.graphql
+			.get()
+			.withClassName(this.docsClassName)
+			.withWhere({
+				path: ["path"],
+				operator: "Equal",
+				valueText: path,
+			})
+			.withFields(
+				["hash", "start", "end"].join(" ") + " _additional { id }"
+			)
+			.do();
+
+		if (result.data["Get"]) {
+			return result.data["Get"][this.docsClassName];
+		} else {
+			return [];
+		}
 	}
 
 	async statFile(path: string): Promise<FileStat> {
@@ -248,13 +204,42 @@ export default class WeaviateManager {
 			.do();
 	}
 
+	/**
+	 * https://github.com/weaviate/weaviate/issues/3949:
+	 * Rely on Weaviate to optimize batch upsert for us
+	 * (properties-only updates, upsert new)
+	 */
+	async batchUpsertChunks(chunks: Chunk[]) {
+		let batcher = this.client.batch.objectsBatcher();
+		for (const chunk of chunks) {
+			batcher = batcher.withObject({
+				class: this.docsClassName,
+				properties: { ...chunk },
+				// Path + content + position is unique
+				id: generateUuid5(`${chunk.hash}${chunk.start}${chunk.end}`),
+			});
+		}
+		await batcher.do();
+	}
+
+	async batchDeleteChunks(ids: string[]) {
+		await this.client.batch
+			.objectsBatchDeleter()
+			.withClassName(this.docsClassName)
+			.withWhere({
+				path: ["id"],
+				operator: "ContainsAny",
+				valueTextArray: ids,
+			})
+			.do();
+	}
+
 	async docsCountOnDatabase() {
 		const response = await this.client.graphql
 			.aggregate()
 			.withClassName(this.docsClassName)
 			.withFields("meta { count }")
 			.do();
-		// console.log("count", response)
 		const count =
 			response.data["Aggregate"][this.docsClassName][0]["meta"]["count"];
 		return count;
@@ -297,49 +282,19 @@ export default class WeaviateManager {
 		return response;
 	}
 
-	async queryByDocId(
-		filePath: string,
-		limit: number,
-		distanceLimit: number,
-		autoCut: number
-	) {
-		const note_id = generateUuid5(filePath);
-
-		let nearObject: { id: string; distance?: number } = { id: note_id };
-
-		if (distanceLimit > 0) {
-			nearObject = { id: note_id, distance: distanceLimit };
-		}
-
-		const result = this.client.graphql
-			.get()
+	async getAllPaths(): Promise<string[]> {
+		// Absurd hack because SELECT DISTINCT doesn't exist on Weaviate
+		const group_query = await this.client.graphql
+			.aggregate()
 			.withClassName(this.docsClassName)
-			.withNearObject(nearObject)
-			.withLimit(limit);
-
-		if (autoCut > 0) {
-			result.withAutocut(autoCut);
-		}
-
-		const response = await result
-			.withFields("filename path _additional { distance }")
+			.withGroupBy(["path"])
+			.withFields("path { topOccurrences { value } }")
 			.do();
 
-		return response;
-	}
-
-	async getAllPaths(): Promise<WeaviateFile[]> {
-		const classProperties = ["path"];
-
-		const query = await this.client.graphql
-			.get()
-			.withClassName(this.docsClassName)
-			.withFields(classProperties.join(" ") + " _additional { id }")
-			.withLimit(this.limit)
-			.do();
-
-		const files: WeaviateFile[] = query["data"]["Get"][this.docsClassName];
-		return files;
+		const paths: string[] = group_query.data["Aggregate"][
+			this.docsClassName
+		].map((r: any) => r["path"]["topOccurrences"][0]["value"]);
+		return paths;
 	}
 
 	/** Converts to ISO format */

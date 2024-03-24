@@ -2,7 +2,7 @@ import { CachedMetadata, Notice, TFile, parseYaml } from "obsidian";
 
 import MyPlugin, { WeaviateFile } from "../main";
 import WeaviateManager, { getWeaviateConf } from "./WeaviateManager";
-import { buildDocTree, chunksFromSections } from "../document";
+import { chunkDocument } from "../chunks";
 
 interface LocalQuery {
 	files: Array<{ files: Array<WeaviateFile>; filePath: string }>;
@@ -83,32 +83,19 @@ export default class VectorServer {
 		return percentage.toFixed(2) + "%";
 	}
 
-	async queryWithNoteId(
-		filePath: string,
-		limit: number,
-		distanceLimit: number,
-		autoCut: number
-	) {
-		await this.weaviateManager.queryByDocId(
-			filePath,
-			limit,
-			distanceLimit,
-			autoCut
-		);
-	}
-
 	async initDBClass() {
 		await this.weaviateManager.initClasses(this.plugin.settings);
 	}
 
 	async addNew(
 		content: string,
+		metadata: CachedMetadata | null,
 		path: string,
 		filename: string,
 		mtime: number
 	) {
-		const cleanContent = this.getCleanDoc(content);
-		await this.weaviateManager.addNew(cleanContent, path, filename, mtime);
+		// May regret this
+		await this.onUpdateFile(content, metadata, path, filename, mtime);
 	}
 
 	/**
@@ -121,43 +108,51 @@ export default class VectorServer {
 		filename: string,
 		mtime: number
 	) {
-		const fileStat = await this.weaviateManager.statFile(path);
-		const doesExist = fileStat.fileExists;
-		const isUpdated =
-			!fileStat.mtime ||
-			mtime - this.rfc3339ToUnixTimestamp(fileStat.mtime) > 0;
-
-		if (typeof metadata?.sections !== "undefined") {
-			// By invariant, no headings in sections without a full headings array
-			const tree = buildDocTree(
-				metadata?.sections,
-				metadata?.headings ? metadata.headings : []
-			);
-			const chunk_borders = chunksFromSections(tree, 1024);
-			for (let chunk of chunk_borders) {
-				console.debug(
-					content.slice(chunk.start_offset, chunk.end_offset).trim()
-				);
-			}
+		if (
+			metadata === null ||
+			typeof metadata?.sections === "undefined" ||
+			content === ""
+		) {
+			// If file is empty, don't bother
+			await this.onDeleteFile(path);
+			return;
 		}
 
-		const cleanContent = this.getCleanDoc(content);
-		const tags = metadata?.tags?.map((t) => t.tag);
+		// By invariant, no headings in sections without a full headings array
+		// console.log(metadata);
+		const chunks = await chunkDocument(
+			content,
+			metadata,
+			path,
+			filename,
+			this.unixTimestampToRFC3339(mtime)
+		);
+		const chunksHashSet = new Set(chunks.map((c) => c.hash));
+		console.debug("On client:");
+		console.debug(chunks);
 
-		if (doesExist && isUpdated && fileStat.id) {
-			// console.log("updating " + path)
-			const newValue = {
-				content: cleanContent,
-				metadata: metadata?.frontmatter,
-				tags: tags,
-				mtime: this.unixTimestampToRFC3339(mtime),
-			};
+		// Assume client is right.
+		const weaviateChunks = await this.weaviateManager.getFileChunkHashes(
+			path
+		);
+		console.debug("On server:");
+		console.debug(weaviateChunks);
+		const staleChunks = weaviateChunks.filter(
+			(c) => !chunksHashSet.has(c.hash)
+		);
 
-			await this.weaviateManager.mergeDoc(fileStat.id, newValue);
-
-			// console.log"update note: " + filename + " time:" + this.unixTimestampToRFC3339(mtime))
-		} else if (!doesExist && isUpdated) {
-			await this.addNew(content, path, filename, mtime);
+		// Push new chunks; update remaining chunk position metadata
+		await this.weaviateManager.batchUpsertChunks(chunks);
+		console.debug("Update succeeded");
+		// Delete stale chunks.
+		// Note that this isn't technically atomic (Weaviate doesn't have transation (Weaviate doesn't have transations)s),
+		// but batching IS atomic and took care of everything else, so it's good enough
+		if (staleChunks.length > 0) {
+			console.debug("Deleting stale");
+			console.debug(staleChunks);
+			await this.weaviateManager.batchDeleteChunks(
+				staleChunks.map((c) => c._additional.id)
+			);
 		}
 	}
 
@@ -175,11 +170,6 @@ export default class VectorServer {
 				mtime: this.unixTimestampToRFC3339(mtime),
 			});
 		}
-	}
-
-	async countOnDatabase() {
-		const docsCount = await this.weaviateManager.docsCountOnDatabase();
-		return docsCount;
 	}
 
 	async onDeleteFile(path: string): Promise<void> {
@@ -213,8 +203,11 @@ export default class VectorServer {
 			while (retries < maxRetries) {
 				try {
 					const content = await this.plugin.app.vault.cachedRead(f);
-					await this.addNew(
+					const metadata =
+						this.plugin.app.metadataCache.getFileCache(f);
+					await this.onUpdateFile(
 						content,
+						metadata || null,
 						f.path,
 						f.basename,
 						f.stat.mtime
@@ -261,9 +254,14 @@ export default class VectorServer {
 		}
 	}
 
-	async readAllPaths(): Promise<WeaviateFile[]> {
+	async readAllPaths(): Promise<string[]> {
 		const paths = await this.weaviateManager.getAllPaths();
 		return paths;
+	}
+
+	async fileCountOnDatabase() {
+		const paths = await this.readAllPaths();
+		return paths.length;
 	}
 
 	unixTimestampToRFC3339(unixTimestamp: number): string {
