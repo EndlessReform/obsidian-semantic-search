@@ -252,6 +252,9 @@ export default class WeaviateManager {
 		distanceLimit: number,
 		autoCut: number
 	) {
+		if (text === "") {
+			return undefined;
+		}
 		let nearText: { concepts: string[]; distance?: number } = {
 			concepts: [text.trim()],
 			distance: distanceLimit > 0 ? distanceLimit : undefined,

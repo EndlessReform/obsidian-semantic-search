@@ -116,43 +116,35 @@ export default class VectorServer {
 			// If file is empty, don't bother
 			await this.onDeleteFile(path);
 			return;
-		}
-
-		// By invariant, no headings in sections without a full headings array
-		// console.log(metadata);
-		const chunks = await chunkDocument(
-			content,
-			metadata,
-			path,
-			filename,
-			this.unixTimestampToRFC3339(mtime)
-		);
-		const chunksHashSet = new Set(chunks.map((c) => c.hash));
-		console.debug("On client:");
-		console.debug(chunks);
-
-		// Assume client is right.
-		const weaviateChunks = await this.weaviateManager.getFileChunkHashes(
-			path
-		);
-		console.debug("On server:");
-		console.debug(weaviateChunks);
-		const staleChunks = weaviateChunks.filter(
-			(c) => !chunksHashSet.has(c.hash)
-		);
-
-		// Push new chunks; update remaining chunk position metadata
-		await this.weaviateManager.batchUpsertChunks(chunks);
-		console.debug("Update succeeded");
-		// Delete stale chunks.
-		// Note that this isn't technically atomic (Weaviate doesn't have transation (Weaviate doesn't have transations)s),
-		// but batching IS atomic and took care of everything else, so it's good enough
-		if (staleChunks.length > 0) {
-			console.debug("Deleting stale");
-			console.debug(staleChunks);
-			await this.weaviateManager.batchDeleteChunks(
-				staleChunks.map((c) => c._additional.id)
+		} else {
+			// By invariant, no headings in sections without a full headings array
+			// console.log(metadata);
+			const chunks = await chunkDocument(
+				content,
+				metadata,
+				path,
+				filename,
+				this.unixTimestampToRFC3339(mtime)
 			);
+			const chunksHashSet = new Set(chunks.map((c) => c.hash));
+
+			// Assume client is right.
+			const weaviateChunks =
+				await this.weaviateManager.getFileChunkHashes(path);
+			const staleChunks = weaviateChunks.filter(
+				(c) => !chunksHashSet.has(c.hash)
+			);
+
+			// Push new chunks; update remaining chunk position metadata
+			await this.weaviateManager.batchUpsertChunks(chunks);
+			// Delete stale chunks.
+			// Note that this isn't technically atomic (Weaviate doesn't have transation (Weaviate doesn't have transations)s),
+			// but batching IS atomic and took care of everything else, so it's good enough
+			if (staleChunks.length > 0) {
+				await this.weaviateManager.batchDeleteChunks(
+					staleChunks.map((c) => c._additional.id)
+				);
+			}
 		}
 	}
 
@@ -173,7 +165,13 @@ export default class VectorServer {
 	}
 
 	async onDeleteFile(path: string): Promise<void> {
-		await this.weaviateManager.deleteFile(path);
+		// Unfortunately there's no DELETE WHERE in Weaviate, so 2 round trips is the best we can do
+		const chunks = await this.weaviateManager.getFileChunkHashes(path);
+		if (chunks.length > 0) {
+			await this.weaviateManager.batchDeleteChunks(
+				chunks.map((c) => c._additional.id)
+			);
+		}
 	}
 
 	async deleteAll() {
