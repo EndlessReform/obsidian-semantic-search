@@ -86,7 +86,7 @@ export default class AINoteSuggestionPlugin extends Plugin {
 
 		this.registerEvents();
 		this.registerCommands();
-		this.registerEditorExtension(GetOnNoteViewExtension(this));
+		// this.registerEditorExtension(GetOnNoteViewExtension(this));
 		this.registerView(
 			SIDE_PANE_VIEW_TYPE,
 			(leaf) => new SidePane(leaf, this)

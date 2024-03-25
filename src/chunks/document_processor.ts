@@ -38,10 +38,40 @@ export async function chunkDocument(
 	if (typeof metadataCache.sections === "undefined") {
 		throw new Error("Must have sections to chunk!");
 	}
-	const tree = buildDocTree(
-		metadataCache?.sections,
-		metadataCache.headings || []
+
+	const sectionHeadings = metadataCache.sections.filter(
+		(s) => s.type === "heading"
 	);
+	let headings = metadataCache.headings;
+	if (
+		sectionHeadings.length > 0 &&
+		(!metadataCache.headings ||
+			metadataCache.headings?.length !== sectionHeadings.length)
+	) {
+		// Obsidian headingCache is hit with weird concurrency bug. This has been happening for years.
+		// Let's just build it ourselves.
+		let newHeadingCache: HeadingCache[] = [];
+		for (let heading of sectionHeadings) {
+			const rawHeading = content.slice(
+				heading.position.start.offset,
+				heading.position.end.offset
+			);
+			const parts = rawHeading.split(" ");
+			if (parts[0] !== "" && parts[0].match(/^#*$/)) {
+				newHeadingCache.push({
+					heading: parts[1],
+					level: parts[0].length,
+					position: heading.position,
+				});
+			} else {
+				console.error(parts);
+				throw new Error(`Invalid heading: ${rawHeading}`);
+			}
+		}
+		headings = newHeadingCache;
+	}
+
+	const tree = buildDocTree(metadataCache?.sections, headings || []);
 	const chunk_borders = chunksFromSections(tree, maxChunkChars);
 	const frontmatterMetadata = JSON.stringify(metadataCache.frontmatter);
 	let tags = metadataCache.tags?.map((t) => t.tag);
