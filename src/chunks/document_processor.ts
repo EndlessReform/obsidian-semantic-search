@@ -56,8 +56,14 @@ export async function chunkDocument(
 				heading.position.start.offset,
 				heading.position.end.offset
 			);
+
+			const isHashes = (s: string) => s.match(/^#*$/);
+
 			const parts = rawHeading.split(" ");
-			if (parts[0] !== "" && parts[0].match(/^#*$/)) {
+			if (
+				(parts[0] !== "" && isHashes(parts[0])) ||
+				(parts[0] === "" && parts.length >= 2 && isHashes(parts[1]))
+			) {
 				newHeadingCache.push({
 					heading: parts[1],
 					level: parts[0].length,

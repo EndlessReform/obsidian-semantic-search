@@ -278,7 +278,7 @@ export default class WeaviateManager {
 
 		result
 			.withLimit(limit)
-			.withFields("filename path _additional { distance }");
+			.withFields("content filename path _additional { distance }");
 
 		const response = await result.do();
 

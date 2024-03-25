@@ -96,9 +96,9 @@ export default class AINoteSuggestionPlugin extends Plugin {
 			GetSearchCodeBlock(this)
 		);
 		this.scanVault();
-
-		// this.app.workspace.onLayoutReady(() => {
-		// })
+		this.addRibbonIcon("file-search", "Semantic search", () =>
+			new SearchNoteModal(this).open()
+		);
 	}
 
 	async onCreate(file: TFile) {
