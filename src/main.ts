@@ -1,4 +1,11 @@
-import { MarkdownView, Notice, PaneType, Plugin, TFile } from "obsidian";
+import {
+	CachedMetadata,
+	MarkdownView,
+	Notice,
+	PaneType,
+	Plugin,
+	TFile,
+} from "obsidian";
 import { SIDE_PANE_VIEW_TYPE, SidePane } from "./SidePane";
 import { GetOnNoteViewExtension } from "./OnNoteViewExtension";
 import { GetSearchCodeBlock } from "./SearchCodeBlock";
@@ -79,7 +86,7 @@ export default class AINoteSuggestionPlugin extends Plugin {
 
 		this.registerEvents();
 		this.registerCommands();
-		this.registerEditorExtension(GetOnNoteViewExtension(this));
+		// this.registerEditorExtension(GetOnNoteViewExtension(this));
 		this.registerView(
 			SIDE_PANE_VIEW_TYPE,
 			(leaf) => new SidePane(leaf, this)
@@ -97,30 +104,36 @@ export default class AINoteSuggestionPlugin extends Plugin {
 	async onCreate(file: TFile) {
 		if (file instanceof TFile) {
 			const fileContent = await this.app.vault.cachedRead(file);
-			// console.log("new file content", fileContent)
-			if (fileContent)
+			if (fileContent) {
+				const metadata = this.app.metadataCache.getFileCache(file);
 				this.vectorServer.onUpdateFile(
 					fileContent,
+					metadata,
 					file.path,
 					file.basename,
 					file.stat.mtime
 				);
+			}
 		}
 	}
 
-	async onModify(file: TFile) {
+	async onModify(file: TFile, metadata?: CachedMetadata | null) {
 		if (file instanceof TFile) {
 			const fileContent = await this.app.vault.cachedRead(file);
-			// console.log("modify content", fileContent)
-
-			if (fileContent)
+			if (fileContent) {
+				if (typeof metadata === "undefined") {
+					metadata = this.app.metadataCache.getFileCache(file);
+				}
 				this.vectorServer.onUpdateFile(
 					fileContent,
+					metadata || null,
 					file.path,
 					file.basename,
 					file.stat.mtime
 				);
-			else this.vectorServer.onDeleteFile(file.path);
+			} else {
+				this.vectorServer.onDeleteFile(file.path);
+			}
 		}
 	}
 
@@ -144,10 +157,10 @@ export default class AINoteSuggestionPlugin extends Plugin {
 
 	// initial scan ran on load and on setting changed
 	async scanVault() {
-		await this.vectorServer.initClass();
+		await this.vectorServer.initDBClass();
 		const files = this.app.vault.getMarkdownFiles();
 		// console.log"file scan size", files.length)
-		const fileCountOnServer = await this.vectorServer.countOnDatabase();
+		const pathsOnServer = await this.vectorServer.readAllPaths();
 
 		const maxFailures = 3; // Maximum number of allowed failures
 		let failureCount = 0;
@@ -156,8 +169,10 @@ export default class AINoteSuggestionPlugin extends Plugin {
 			try {
 				const content = await this.app.vault.cachedRead(file);
 				if (content) {
+					const metadata = this.app.metadataCache.getFileCache(file);
 					await this.vectorServer.onUpdateFile(
 						content,
+						metadata,
 						file.path,
 						file.basename,
 						file.stat.mtime
@@ -179,20 +194,21 @@ export default class AINoteSuggestionPlugin extends Plugin {
 		}
 
 		// Rest of the code for successful file updates
-		if (fileCountOnServer > files.length) {
-			const weaviateFiles: WeaviateFile[] =
-				await this.vectorServer.readAllPaths();
-			const extraFiles = this.findExtraFiles(weaviateFiles, files);
-			extraFiles.map(async (extra) => {
-				await this.vectorServer.onDeleteFile(extra.path);
+		if (pathsOnServer.length > files.length) {
+			const extraPaths = this.findExtraFiles(
+				pathsOnServer,
+				files.map((f) => f.path)
+			);
+			extraPaths.map(async (path) => {
+				await this.vectorServer.onDeleteFile(path);
 			});
 		}
 	}
 
-	findExtraFiles(weaviateFiles: WeaviateFile[], localFiles: TFile[]) {
-		const extraFiles = weaviateFiles.filter(
-			(weaviateFile) =>
-				!localFiles.some((file) => file.path === weaviateFile.path)
+	findExtraFiles(weaviatePaths: string[], localFiles: string[]): string[] {
+		const localFileSet = new Set(localFiles);
+		const extraFiles = weaviatePaths.filter(
+			(weaviateFile) => !localFileSet.has(weaviateFile)
 		);
 		return extraFiles;
 	}
@@ -200,16 +216,22 @@ export default class AINoteSuggestionPlugin extends Plugin {
 	registerEvents() {
 		// console.log("register events")
 
+		this.app.workspace.onLayoutReady(() =>
+			// Avoid spurious "creation" requests
+			this.registerEvent(
+				this.app.vault.on("create", (file) => {
+					if (file instanceof TFile) this.onCreate(file);
+				})
+			)
+		);
+
 		this.registerEvent(
-			this.app.vault.on("create", (file) => {
-				if (file instanceof TFile) this.onCreate(file);
+			// Wait for metadata cache to finish indexing
+			this.app.metadataCache.on("changed", (file, _, cache) => {
+				if (file instanceof TFile) this.onModify(file, cache);
 			})
 		);
-		this.registerEvent(
-			this.app.vault.on("modify", (file) => {
-				if (file instanceof TFile) this.onModify(file);
-			})
-		);
+
 		this.registerEvent(
 			this.app.vault.on("rename", (file, oldPath) => {
 				if (file instanceof TFile) this.onRename(file, oldPath);

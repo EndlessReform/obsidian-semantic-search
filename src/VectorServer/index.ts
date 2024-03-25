@@ -1,7 +1,8 @@
-import { Notice, TFile, parseYaml } from "obsidian";
+import { CachedMetadata, Notice, TFile, parseYaml } from "obsidian";
 
 import MyPlugin, { WeaviateFile } from "../main";
 import WeaviateManager, { getWeaviateConf } from "./WeaviateManager";
+import { chunkDocument } from "../chunks";
 
 interface LocalQuery {
 	files: Array<{ files: Array<WeaviateFile>; filePath: string }>;
@@ -36,13 +37,11 @@ export default class VectorServer {
 
 	async getExtensionNoteList(file: TFile) {
 		const content = await this.plugin.app.vault.cachedRead(file);
+		// TODO: Remove this!
 		const cleanContent = this.getCleanDoc(content);
-		const metadataContent = this.extractYAMLWithoutDashes(content);
-		// const tags = this.getAllTags(content)
-		// const metadata = this.extractYAMLWithoutDashes(content)
 
 		return this.weaviateManager.queryText(
-			`${metadataContent}\n${cleanContent}`,
+			cleanContent,
 			[],
 			this.plugin.settings.limit,
 			this.plugin.settings.distanceLimit,
@@ -53,8 +52,6 @@ export default class VectorServer {
 	async getSidePaneNoteList(file: TFile) {
 		const content = await this.plugin.app.vault.cachedRead(file);
 		const cleanContent = this.getCleanDoc(content);
-		// const tags = this.getAllTags(content)
-		// const metadata = this.extractYAMLWithoutDashes(content)
 
 		return this.weaviateManager.queryText(
 			cleanContent,
@@ -86,32 +83,19 @@ export default class VectorServer {
 		return percentage.toFixed(2) + "%";
 	}
 
-	async queryWithNoteId(
-		filePath: string,
-		limit: number,
-		distanceLimit: number,
-		autoCut: number
-	) {
-		await this.weaviateManager.queryByDocId(
-			filePath,
-			limit,
-			distanceLimit,
-			autoCut
-		);
-	}
-
-	async initClass() {
+	async initDBClass() {
 		await this.weaviateManager.initClasses(this.plugin.settings);
 	}
 
 	async addNew(
 		content: string,
+		metadata: CachedMetadata | null,
 		path: string,
 		filename: string,
 		mtime: number
 	) {
-		const cleanContent = this.getCleanDoc(content);
-		await this.weaviateManager.addNew(cleanContent, path, filename, mtime);
+		// May regret this
+		await this.onUpdateFile(content, metadata, path, filename, mtime);
 	}
 
 	/**
@@ -119,36 +103,48 @@ export default class VectorServer {
 	 */
 	async onUpdateFile(
 		content: string,
+		metadata: CachedMetadata | null,
 		path: string,
 		filename: string,
 		mtime: number
 	) {
-		const fileStat = await this.weaviateManager.statFile(path);
-		const doesExist = fileStat.fileExists;
-		const isUpdated =
-			!fileStat.mtime ||
-			mtime - this.rfc3339ToUnixTimestamp(fileStat.mtime) > 0;
+		if (
+			metadata === null ||
+			typeof metadata?.sections === "undefined" ||
+			content === ""
+		) {
+			// If file is empty, don't bother
+			await this.onDeleteFile(path);
+			return;
+		} else {
+			// By invariant, no headings in sections without a full headings array
+			// console.log(metadata);
+			const chunks = await chunkDocument(
+				content,
+				metadata,
+				path,
+				filename,
+				this.unixTimestampToRFC3339(mtime)
+			);
+			const chunksHashSet = new Set(chunks.map((c) => c.hash));
 
-		const cleanContent = this.getCleanDoc(content);
-		const tags = this.getAllTags(content);
-		const metadata = this.extractYAMLWithoutDashes(content);
+			// Assume client is right.
+			const weaviateChunks =
+				await this.weaviateManager.getFileChunkHashes(path);
+			const staleChunks = weaviateChunks.filter(
+				(c) => !chunksHashSet.has(c.hash)
+			);
 
-		// const yamlContent = this.objectToArray(this.extractYAMLWithoutDashes(content))
-
-		if (doesExist && isUpdated && fileStat.id) {
-			// console.log("updating " + path)
-			const newValue = {
-				content: cleanContent,
-				metadata: metadata,
-				tags: tags,
-				mtime: this.unixTimestampToRFC3339(mtime),
-			};
-
-			await this.weaviateManager.mergeDoc(fileStat.id, newValue);
-
-			// console.log"update note: " + filename + " time:" + this.unixTimestampToRFC3339(mtime))
-		} else if (!doesExist && isUpdated) {
-			await this.addNew(content, path, filename, mtime);
+			// Push new chunks; update remaining chunk position metadata
+			await this.weaviateManager.batchUpsertChunks(chunks);
+			// Delete stale chunks.
+			// Note that this isn't technically atomic (Weaviate doesn't have transation (Weaviate doesn't have transations)s),
+			// but batching IS atomic and took care of everything else, so it's good enough
+			if (staleChunks.length > 0) {
+				await this.weaviateManager.batchDeleteChunks(
+					staleChunks.map((c) => c._additional.id)
+				);
+			}
 		}
 	}
 
@@ -168,13 +164,14 @@ export default class VectorServer {
 		}
 	}
 
-	async countOnDatabase() {
-		const docsCount = await this.weaviateManager.docsCountOnDatabase();
-		return docsCount;
-	}
-
 	async onDeleteFile(path: string): Promise<void> {
-		await this.weaviateManager.deleteFile(path);
+		// Unfortunately there's no DELETE WHERE in Weaviate, so 2 round trips is the best we can do
+		const chunks = await this.weaviateManager.getFileChunkHashes(path);
+		if (chunks.length > 0) {
+			await this.weaviateManager.batchDeleteChunks(
+				chunks.map((c) => c._additional.id)
+			);
+		}
 	}
 
 	async deleteAll() {
@@ -184,7 +181,7 @@ export default class VectorServer {
 			"Delete successful. Rescanning files and adding to database"
 		);
 
-		await this.initClass().then(async () => {
+		await this.initDBClass().then(async () => {
 			await this.initialSyncFiles();
 		});
 	}
@@ -204,8 +201,11 @@ export default class VectorServer {
 			while (retries < maxRetries) {
 				try {
 					const content = await this.plugin.app.vault.cachedRead(f);
-					await this.addNew(
+					const metadata =
+						this.plugin.app.metadataCache.getFileCache(f);
+					await this.onUpdateFile(
 						content,
+						metadata || null,
 						f.path,
 						f.basename,
 						f.stat.mtime
@@ -252,9 +252,14 @@ export default class VectorServer {
 		}
 	}
 
-	async readAllPaths(): Promise<WeaviateFile[]> {
+	async readAllPaths(): Promise<string[]> {
 		const paths = await this.weaviateManager.getAllPaths();
 		return paths;
+	}
+
+	async fileCountOnDatabase() {
+		const paths = await this.readAllPaths();
+		return paths.length;
 	}
 
 	unixTimestampToRFC3339(unixTimestamp: number): string {
@@ -289,41 +294,6 @@ export default class VectorServer {
 		);
 
 		return markdownWithoutCodeBlocks;
-	}
-
-	extractYAMLWithoutDashes(markdownContent: string) {
-		// Define a regular expression to match YAML front matter without the dashes
-		const yamlFrontMatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n/;
-
-		// Use the regular expression to extract YAML content
-		const match = markdownContent.match(yamlFrontMatterRegex);
-
-		// If a match is found, return the YAML content without dashes
-
-		if (match && match[1]) {
-			const yaml_string = match[1].trim();
-			return yaml_string;
-			// return parseYaml(yaml_string)
-		} else {
-			return "";
-		}
-	}
-
-	getAllTags(inputString: string) {
-		const yaml = parseYaml(this.extractYAMLWithoutDashes(inputString));
-		const yamlTags: Array<string> =
-			yaml && yaml["tags"] ? yaml["tags"] : [];
-
-		const regex = /#(\w+)/g;
-
-		const tags = inputString.match(regex);
-		const cleanTags = tags ? tags.map((match) => match.slice(1)) : [];
-
-		if (tags || yamlTags) {
-			return yamlTags.concat(cleanTags);
-		} else {
-			return [];
-		}
 	}
 
 	async readCache() {
