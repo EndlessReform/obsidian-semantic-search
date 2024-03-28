@@ -12,6 +12,7 @@ export interface Chunk {
 	start: number;
 	/** End offset in file */
 	end: number;
+	start_line: number;
 	metadata: string;
 	tags: string[];
 	filename: string;
@@ -65,6 +66,7 @@ export function createOpenAIChunkClass(
 			newMetadataField("hash"),
 			newMetadataField("start", "number"),
 			newMetadataField("end", "number"),
+			newMetadataField("start_line", "number"),
 			newMetadataField("metadata"),
 			{
 				name: "filename",

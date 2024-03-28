@@ -9,6 +9,7 @@ interface WeaviateChunk {
 	start: number;
 	/** End offset in file */
 	end: number;
+	start_line: number;
 	content: string;
 	metadata: string;
 	tags: string[];
@@ -93,6 +94,7 @@ export async function chunkDocument(
 			hash,
 			start: border.start_offset,
 			end: border.end_offset,
+			start_line: border.start_line,
 			content: chunk_content,
 			metadata: frontmatterMetadata,
 			tags: tags || [],

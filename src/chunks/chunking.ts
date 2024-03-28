@@ -12,17 +12,20 @@ class SectionNode {
 	 * For heading / H0, NOT the end of children content!
 	 */
 	end: number;
+	start_line: number;
 	children: SectionNode[];
 
 	constructor(
 		type: string,
 		headingLevel: number,
 		start: number,
-		end: number
+		end: number,
+		start_line: number
 	) {
 		this.type = type;
 		(this.headingLevel = headingLevel), (this.start = start);
 		this.end = end;
+		this.start_line = start_line;
 		this.children = [];
 	}
 
@@ -60,7 +63,8 @@ export function buildDocTree(
 				"h0",
 				0,
 				sections[0].position.start.offset,
-				sections[0].position.end.offset
+				sections[0].position.end.offset,
+				sections[0].position.start.line
 			)
 		);
 	}
@@ -77,7 +81,8 @@ export function buildDocTree(
 				section.type,
 				level,
 				section.position.start.offset,
-				section.position.end.offset
+				section.position.end.offset,
+				section.position.start.line
 			);
 
 			let new_parent = roots[roots.length - 1];
@@ -106,7 +111,8 @@ export function buildDocTree(
 					section.type,
 					parent.headingLevel + 1,
 					section.position.start.offset,
-					section.position.end.offset
+					section.position.end.offset,
+					section.position.start.line
 				)
 			);
 		}
@@ -118,6 +124,7 @@ export function buildDocTree(
 interface Chunk {
 	start_offset: number;
 	end_offset: number;
+	start_line: number;
 }
 
 export function chunksFromSections(
@@ -133,6 +140,7 @@ export function chunksFromSections(
 		start_offset: sectionNodes[0].start,
 		// By invariant now, buffer end_offset will be written at least once, so this is fine
 		end_offset: Infinity,
+		start_line: sectionNodes[0].start_line,
 	};
 
 	let reversedSections = [...sectionNodes.reverse()];
@@ -163,11 +171,14 @@ export function chunksFromSections(
 						buffer = {
 							start_offset: end,
 							end_offset: Infinity,
+							// A bit unprincipled, but people will understand
+							start_line: section.start_line,
 						};
 					} else {
 						chunks.push({
 							start_offset: start,
 							end_offset: end,
+							start_line: section.start_line,
 						});
 					}
 
@@ -183,6 +194,7 @@ export function chunksFromSections(
 				buffer = {
 					start_offset: buffer.end_offset,
 					end_offset: dims.end,
+					start_line: section.start_line,
 				};
 			}
 		}
