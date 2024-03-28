@@ -96,9 +96,9 @@ export default class AINoteSuggestionPlugin extends Plugin {
 			GetSearchCodeBlock(this)
 		);
 		this.scanVault();
-
-		// this.app.workspace.onLayoutReady(() => {
-		// })
+		this.addRibbonIcon("file-search", "Semantic search", () =>
+			new SearchNoteModal(this).open()
+		);
 	}
 
 	async onCreate(file: TFile) {
@@ -254,23 +254,9 @@ export default class AINoteSuggestionPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
-		// console.log("save settings")
 	}
 
 	getCurrentOpenedFile() {
-		// const file =  this.app.workspace.getActiveFile()
-
-		// const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		// const isFile = view?.file?.path
-		// // console.log("is file",view?.file)
-
-		// if (isFile) {
-		//     const activeFile = this.app.workspace.getActiveFile()
-		//     return activeFile
-		// } else {
-		//     return null
-		// }
-
 		const activeFile = this.app.workspace.getActiveFile();
 		if (activeFile instanceof TFile) {
 			return activeFile;
@@ -279,7 +265,7 @@ export default class AINoteSuggestionPlugin extends Plugin {
 		}
 	}
 
-	focusFile(filePath: string, paneType: PaneType | null) {
+	focusFile(filePath: string, paneType: PaneType | null, line?: number) {
 		const targetFile = this.app.vault.getAbstractFileByPath(filePath);
 		if (!targetFile) return;
 
@@ -289,7 +275,14 @@ export default class AINoteSuggestionPlugin extends Plugin {
 				otherLeaf?.openFile(targetFile, { active: true });
 			} else {
 				const currentLeaf = this.app.workspace.getMostRecentLeaf();
-				currentLeaf?.openFile(targetFile, { active: true });
+				currentLeaf?.openFile(targetFile, {
+					active: true,
+					eState: line
+						? {
+								line,
+						  }
+						: undefined,
+				});
 			}
 		}
 	}

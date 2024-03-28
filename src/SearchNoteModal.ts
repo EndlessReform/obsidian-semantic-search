@@ -1,33 +1,65 @@
-import {  SuggestModal, } from "obsidian";
-import MyPlugin, { WeaviateFile } from "./main";
+import { SuggestModal } from "obsidian";
 
+import MyPlugin from "./main";
 
-export class SearchNoteModal extends SuggestModal<WeaviateFile> {
-  private myPlugin:MyPlugin
+import { WeaviateChunk } from "./chunks";
 
-  constructor(myPlugin:MyPlugin) {
-    super(myPlugin.app)
-    this.myPlugin=myPlugin
-  }
+export class SearchNoteModal extends SuggestModal<WeaviateChunk> {
+	private myPlugin: MyPlugin;
+	private debounceTimer: NodeJS.Timeout | null = null;
 
-  // Returns all available suggestions.
-  async getSuggestions(query: string): Promise<WeaviateFile[]> {
-    if (!query) return []
-    const similarFiles = await this.myPlugin.vectorServer.getSearchModalQueryNoteList(query)
-    if (!similarFiles) return []
-    const fileFromDatabase: WeaviateFile[] = similarFiles['data']['Get'][this.myPlugin.settings.weaviateClass]
-    return fileFromDatabase
-  }
+	constructor(myPlugin: MyPlugin) {
+		super(myPlugin.app);
+		this.myPlugin = myPlugin;
+	}
 
-  // Renders each suggestion item.
-  renderSuggestion(note: WeaviateFile, el: HTMLElement) {
-    const file_similarity = this.myPlugin.vectorServer.convertToSimilarPercentage(note._additional.distance)
-    el.createEl("div", { text: note.filename });
-    el.createEl("small", { text: file_similarity });
-  }
+	// Returns all available suggestions.
+	async getSuggestions(query: string): Promise<WeaviateChunk[]> {
+		if (!query) return [];
 
-  // Perform action on the selected suggestion.
-  onChooseSuggestion(note: WeaviateFile, evt: MouseEvent | KeyboardEvent) {
-    this.myPlugin.focusFile(note.path, null)
-  }
+		return new Promise((resolve) => {
+			if (this.debounceTimer) {
+				clearTimeout(this.debounceTimer);
+			}
+
+			this.debounceTimer = setTimeout(async () => {
+				const similarFiles =
+					await this.myPlugin.vectorServer.getSearchModalQueryNoteList(
+						query
+					);
+
+				if (!similarFiles) {
+					resolve([]);
+					return;
+				}
+
+				const fileFromDatabase: WeaviateChunk[] =
+					similarFiles["data"]["Get"][
+						this.myPlugin.settings.weaviateClass
+					];
+
+				resolve(fileFromDatabase);
+			}, 300); // Adjust the debounce delay as needed (in milliseconds)
+		});
+	}
+
+	// Renders each suggestion item.
+	renderSuggestion(note: WeaviateChunk, el: HTMLElement) {
+		const file_similarity =
+			this.myPlugin.vectorServer.convertToSimilarPercentage(
+				note._additional.distance
+			);
+
+		el.createEl("div", { text: note.filename });
+		el.createEl("small", { text: file_similarity });
+		el.createEl("p", {
+			text: note.content.split(" ").slice(0, 48).join(" "),
+			cls: "searchresult__preview",
+		});
+	}
+
+	// Perform action on the selected suggestion.
+	onChooseSuggestion(note: WeaviateChunk, evt: MouseEvent | KeyboardEvent) {
+		this.myPlugin.focusFile(note.path, null, note.start_line);
+	}
 }

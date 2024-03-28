@@ -9,6 +9,7 @@ interface WeaviateChunk {
 	start: number;
 	/** End offset in file */
 	end: number;
+	start_line: number;
 	content: string;
 	metadata: string;
 	tags: string[];
@@ -56,8 +57,14 @@ export async function chunkDocument(
 				heading.position.start.offset,
 				heading.position.end.offset
 			);
+
+			const isHashes = (s: string) => s.match(/^#*$/);
+
 			const parts = rawHeading.split(" ");
-			if (parts[0] !== "" && parts[0].match(/^#*$/)) {
+			if (
+				(parts[0] !== "" && isHashes(parts[0])) ||
+				(parts[0] === "" && parts.length >= 2 && isHashes(parts[1]))
+			) {
 				newHeadingCache.push({
 					heading: parts[1],
 					level: parts[0].length,
@@ -87,6 +94,7 @@ export async function chunkDocument(
 			hash,
 			start: border.start_offset,
 			end: border.end_offset,
+			start_line: border.start_line,
 			content: chunk_content,
 			metadata: frontmatterMetadata,
 			tags: tags || [],
