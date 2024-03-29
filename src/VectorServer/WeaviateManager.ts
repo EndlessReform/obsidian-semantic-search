@@ -245,6 +245,8 @@ export default class WeaviateManager {
 		return count;
 	}
 
+	async filesOnDatabase() {}
+
 	async queryText(
 		text: string,
 		tags: string[],
@@ -287,18 +289,21 @@ export default class WeaviateManager {
 		return response;
 	}
 
-	async getAllPaths(): Promise<string[]> {
+	async getAllPaths(): Promise<{ path: string; mtime: string }[]> {
 		// Absurd hack because SELECT DISTINCT doesn't exist on Weaviate
 		const group_query = await this.client.graphql
 			.aggregate()
 			.withClassName(this.docsClassName)
 			.withGroupBy(["path"])
-			.withFields("path { topOccurrences { value } }")
+			.withFields("groupedBy { value } mtime { maximum } ")
 			.do();
 
-		const paths: string[] = group_query.data["Aggregate"][
-			this.docsClassName
-		].map((r: any) => r["path"]["topOccurrences"][0]["value"]);
+		const paths = group_query.data["Aggregate"][this.docsClassName].map(
+			(r: any) => ({
+				path: r["groupedBy"]["value"],
+				mtime: r["mtime"]["maximum"],
+			})
+		);
 		return paths;
 	}
 

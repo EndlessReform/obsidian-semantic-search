@@ -252,9 +252,12 @@ export default class VectorServer {
 		}
 	}
 
-	async readAllPaths(): Promise<string[]> {
+	async readAllPaths(): Promise<{ path: string; mtime: number }[]> {
 		const paths = await this.weaviateManager.getAllPaths();
-		return paths;
+		return paths.map((p) => ({
+			...p,
+			mtime: this.rfc3339ToUnixTimestamp(p.mtime),
+		}));
 	}
 
 	async fileCountOnDatabase() {
