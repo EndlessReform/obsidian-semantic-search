@@ -71,6 +71,7 @@ export function createOpenAIChunkClass(
 			{
 				name: "filename",
 				datatype: ["text"],
+				indexFilterable: true,
 			},
 			newMetadataField("tags", "text[]"),
 			newMetadataField("mtime", "date"),

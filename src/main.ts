@@ -158,14 +158,24 @@ export default class AINoteSuggestionPlugin extends Plugin {
 	// initial scan ran on load and on setting changed
 	async scanVault() {
 		await this.vectorServer.initDBClass();
-		const files = this.app.vault.getMarkdownFiles();
+		const localFiles = this.app.vault.getMarkdownFiles();
 		// console.log"file scan size", files.length)
 		const pathsOnServer = await this.vectorServer.readAllPaths();
+
+		const serverFileMap: Record<string, number> = pathsOnServer.reduce(
+			(acc, f) => ({ ...acc, [f.path]: f.mtime }),
+			{}
+		);
+		const clientAheadFiles: TFile[] = localFiles.filter(
+			(f) =>
+				f.path in serverFileMap && f.stat.mtime > serverFileMap[f.path]
+		);
 
 		const maxFailures = 3; // Maximum number of allowed failures
 		let failureCount = 0;
 
-		for (const file of files) {
+		// Update files where server is behind (if any)
+		for (const file of clientAheadFiles) {
 			try {
 				const content = await this.app.vault.cachedRead(file);
 				if (content) {
@@ -193,24 +203,36 @@ export default class AINoteSuggestionPlugin extends Plugin {
 			}
 		}
 
-		// Rest of the code for successful file updates
-		if (pathsOnServer.length > files.length) {
-			const extraPaths = this.findExtraFiles(
-				pathsOnServer,
-				files.map((f) => f.path)
+		if (pathsOnServer.length != localFiles.length) {
+			const { newFiles, deletedPaths } = this.findExtraFiles(
+				pathsOnServer.map((p) => p.path),
+				localFiles
 			);
-			extraPaths.map(async (path) => {
+			deletedPaths.map(async (path) => {
 				await this.vectorServer.onDeleteFile(path);
+			});
+			newFiles.map(async (f) => {
+				await this.onCreate(f);
 			});
 		}
 	}
 
-	findExtraFiles(weaviatePaths: string[], localFiles: string[]): string[] {
-		const localFileSet = new Set(localFiles);
+	findExtraFiles(
+		weaviatePaths: string[],
+		localFiles: TFile[]
+	): { newFiles: TFile[]; deletedPaths: string[] } {
+		const localFileSet = new Set(localFiles.map((f) => f.path));
+		const serverFileSet = new Set(weaviatePaths);
 		const extraFiles = weaviatePaths.filter(
 			(weaviateFile) => !localFileSet.has(weaviateFile)
 		);
-		return extraFiles;
+		const newFiles = localFiles.filter(
+			(localFile) => !serverFileSet.has(localFile.path)
+		);
+		return {
+			newFiles,
+			deletedPaths: extraFiles,
+		};
 	}
 
 	registerEvents() {
