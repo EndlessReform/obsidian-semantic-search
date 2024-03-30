@@ -7,6 +7,40 @@ import weaviate, {
 import { AINoteSuggestionSettings, WeaviateFile } from "../main";
 import { Chunk, createOpenAIChunkClass } from "src/chunks";
 
+function averageVectors(vectors: number[][]) {
+	const numVectors = vectors.length;
+	const dimension = vectors[0].length;
+	const averagedVector = new Float32Array(dimension);
+
+	for (let i = 0; i < numVectors; i++) {
+		for (let j = 0; j < dimension; j++) {
+			averagedVector[j] += vectors[i][j];
+		}
+	}
+
+	for (let j = 0; j < dimension; j++) {
+		averagedVector[j] /= numVectors;
+	}
+
+	return Array.from(averagedVector);
+}
+
+function maxPoolVectors(vectors: number[][]) {
+	const numVectors = vectors.length;
+	const dimension = vectors[0].length;
+	const maxPooledVector = new Float32Array(dimension);
+
+	for (let j = 0; j < dimension; j++) {
+		let maxVal = -Infinity;
+		for (let i = 0; i < numVectors; i++) {
+			maxVal = Math.max(maxVal, vectors[i][j]);
+		}
+		maxPooledVector[j] = maxVal;
+	}
+
+	return Array.from(maxPooledVector);
+}
+
 /**
  * Coupled to OpenAI for now
  */
@@ -289,6 +323,35 @@ export default class WeaviateManager {
 		return response;
 	}
 
+	async queryVector(
+		vector: number[],
+		limit: number,
+		distanceLimit: number,
+		autoCut: number
+	) {
+		const result = this.client.graphql
+			.get()
+			.withClassName(this.docsClassName)
+			.withNearVector({
+				distance:
+					distanceLimit && distanceLimit > 0
+						? distanceLimit
+						: undefined,
+				vector,
+			})
+			.withLimit(limit)
+			.withFields(
+				"content filename path start_line _additional { distance }"
+			);
+
+		if (autoCut > 0) {
+			result.withAutocut(0);
+		}
+
+		const res = await result.do();
+		return res;
+	}
+
 	async getAllPaths(): Promise<{ path: string; mtime: string }[]> {
 		// Absurd hack because SELECT DISTINCT doesn't exist on Weaviate
 		const group_query = await this.client.graphql
@@ -305,6 +368,25 @@ export default class WeaviateManager {
 			})
 		);
 		return paths;
+	}
+
+	async getFileMeanEmbedding(path: string): Promise<number[]> {
+		const vectors_query = await this.client.graphql
+			.get()
+			.withClassName(this.docsClassName)
+			.withWhere({
+				path: ["path"],
+				operator: "Equal",
+				valueText: path,
+			})
+			.withFields("_additional { vector }")
+			.do();
+
+		const vectors: number[][] = vectors_query.data["Get"][
+			this.docsClassName
+		].map((r: any) => r["_additional"]["vector"]);
+
+		return maxPoolVectors(vectors);
 	}
 
 	/** Converts to ISO format */

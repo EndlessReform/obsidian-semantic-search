@@ -49,13 +49,16 @@ export default class VectorServer {
 		);
 	}
 
-	async getSidePaneNoteList(file: TFile) {
-		const content = await this.plugin.app.vault.cachedRead(file);
-		const cleanContent = this.getCleanDoc(content);
+	async getSimilarNotes(file: TFile) {
+		// TODO: Caching!
+		//const content = await this.plugin.app.vault.cachedRead(file);
+		//const cleanContent = this.getCleanDoc(content);
+		const fileVector = await this.weaviateManager.getFileMeanEmbedding(
+			file.path
+		);
 
-		return this.weaviateManager.queryText(
-			cleanContent,
-			[],
+		return this.weaviateManager.queryVector(
+			fileVector,
 			this.plugin.settings.limit,
 			this.plugin.settings.distanceLimit,
 			this.plugin.settings.autoCut

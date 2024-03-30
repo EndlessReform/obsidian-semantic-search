@@ -1,6 +1,7 @@
 import { ItemView, MarkdownView, TFile, WorkspaceLeaf } from "obsidian";
 import MyPlugin, { SIDE_PANE_HOVER_ID, WeaviateFile } from "./main";
 export const SIDE_PANE_VIEW_TYPE = "similar-notes";
+import { WeaviateChunk } from "./chunks";
 
 export class SidePane extends ItemView {
 	listEl: HTMLElement;
@@ -79,24 +80,25 @@ export class SidePane extends ItemView {
 			cls: "side_pane_path",
 		});
 
-		const cachedFiles = await this.myPlugin.vectorServer.getCachedNoteList(
-			currentFile
-		);
-		this.itemElement.empty();
-		cachedFiles.map((cacheFile) => {
-			this.populateItem(cacheFile);
-		});
+		// TODO: Fix cache
+		// const cachedFiles = await this.myPlugin.vectorServer.getCachedNoteList(
+		// 	currentFile
+		// );
+		// this.itemElement.empty();
+		// cachedFiles.map((cacheFile) => {
+		// 	this.populateItem(cacheFile);
+		// });
 
 		this.myPlugin.vectorServer
-			.getExtensionNoteList(currentFile)
+			.getSimilarNotes(currentFile)
 			.then((similarFiles) => {
 				if (!similarFiles) return;
 
-				const fileFromDatabase: WeaviateFile[] =
+				const fileFromDatabase: WeaviateChunk[] =
 					similarFiles["data"]["Get"][
 						this.myPlugin.settings.weaviateClass
 					];
-				const cleanFileList: WeaviateFile[] = fileFromDatabase.filter(
+				const cleanFileList: WeaviateChunk[] = fileFromDatabase.filter(
 					(item) => currentFile.path && currentFile.path != item.path
 				);
 
@@ -107,11 +109,11 @@ export class SidePane extends ItemView {
 			});
 	}
 
-	populateItem(file: WeaviateFile) {
-		const file_name = file.filename;
+	populateItem(chunk: WeaviateChunk) {
+		const file_name = chunk.filename;
 		const file_similarity =
 			this.myPlugin.vectorServer.convertToSimilarPercentage(
-				file._additional.distance
+				chunk._additional.distance
 			);
 		// const opacity_val = parseFloat(file_similarity) * .01
 		// itemElement.style.opacity = `${opacity_val}`
@@ -130,13 +132,13 @@ export class SidePane extends ItemView {
 		if (this.myPlugin.settings.showContent) {
 			// Show chunk instead
 			itemElement.createEl("p", {
-				text: file.content.slice(0, 256),
+				text: chunk.content.slice(0, 256),
 				cls: "file_content",
 			});
 		}
 		// click event
 		itemElement.addEventListener("click", () => {
-			this.myPlugin.focusFile(file.path, null);
+			this.myPlugin.focusFile(chunk.path, null, chunk.start_line);
 		});
 
 		itemElement.addEventListener("mouseenter", (event) => {
@@ -145,8 +147,8 @@ export class SidePane extends ItemView {
 				event: event,
 				hoverParent: itemElement.parentElement,
 				targetEl: itemElement,
-				linktext: file.filename,
-				sourcePath: file.path,
+				linktext: chunk.filename,
+				sourcePath: chunk.path,
 			});
 		});
 	}

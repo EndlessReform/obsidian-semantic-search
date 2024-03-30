@@ -237,7 +237,6 @@ export default class AINoteSuggestionPlugin extends Plugin {
 
 	registerEvents() {
 		// console.log("register events")
-
 		this.app.workspace.onLayoutReady(() =>
 			// Avoid spurious "creation" requests
 			this.registerEvent(
