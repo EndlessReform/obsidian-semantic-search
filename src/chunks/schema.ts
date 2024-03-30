@@ -58,7 +58,16 @@ export function createOpenAIChunkClass(
 		class: className,
 		description: "File chunks from Obsidian vault text files",
 		properties: [
-			newMetadataField("path"),
+			{
+				name: "path",
+				datatype: ["text"],
+				indexFilterable: true,
+				moduleConfig: {
+					["text2vec-openai"]: {
+						skip: "true",
+					},
+				},
+			},
 			{
 				name: "content",
 				datatype: ["text"],
