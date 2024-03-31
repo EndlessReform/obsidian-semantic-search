@@ -119,6 +119,10 @@ export default class AINoteSuggestionPlugin extends Plugin {
 					file.basename,
 					file.stat.mtime
 				);
+				globalStore.getState().increment_indexed();
+			} else {
+				globalStore.getState().increment_indexed();
+				globalStore.getState().increment_n_empty();
 			}
 		}
 	}

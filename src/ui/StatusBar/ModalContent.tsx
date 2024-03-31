@@ -5,6 +5,7 @@ import { ScanSearch } from "lucide-react";
 
 export function ModalContent() {
 	const n_indexed = useStore(globalStore, (state) => state.n_indexed);
+	const n_empty = useStore(globalStore, (state) => state.n_empty);
 	const n_in_vault = useStore(globalStore, (state) => state.n_in_vault);
 
 	return (
@@ -23,7 +24,7 @@ export function ModalContent() {
 					>
 						{n_indexed}
 					</span>{" "}
-					notes indexed
+					notes indexed {n_empty > 0 ? `(${n_empty} empty)` : ""}
 				</p>
 				<p className="sync_modal__label" style={{ marginLeft: "auto" }}>
 					<span
