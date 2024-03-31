@@ -12,6 +12,7 @@ import { GetSearchCodeBlock } from "./SearchCodeBlock";
 import { MySettings } from "./SettingTab";
 import VectorServer from "./VectorServer";
 import { SearchNoteModal, createStatusBarIcon, StatusBarModal } from "./ui";
+import { globalStore } from "./state";
 
 const DEFAULT_SETTINGS: Partial<AINoteSuggestionSettings> = {
 	weaviateAddress: "http://localhost:3636",
@@ -103,8 +104,7 @@ export default class AINoteSuggestionPlugin extends Plugin {
 			GetSearchCodeBlock(this)
 		);
 
-		// TODO Re-enable
-		// this.scanVault();
+		this.scanVault();
 	}
 
 	async onCreate(file: TFile) {
@@ -165,8 +165,11 @@ export default class AINoteSuggestionPlugin extends Plugin {
 	async scanVault() {
 		await this.vectorServer.initDBClass();
 		const localFiles = this.app.vault.getMarkdownFiles();
+
 		// console.log"file scan size", files.length)
 		const pathsOnServer = await this.vectorServer.readAllPaths();
+		globalStore.getState().set_n_in_vault(localFiles.length);
+		globalStore.getState().set_n_indexed(pathsOnServer.length);
 
 		const serverFileMap: Record<string, number> = pathsOnServer.reduce(
 			(acc, f) => ({ ...acc, [f.path]: f.mtime }),
@@ -193,6 +196,9 @@ export default class AINoteSuggestionPlugin extends Plugin {
 						file.basename,
 						file.stat.mtime
 					);
+					// Avoid exhausting server
+					globalStore.getState().increment_indexed();
+					await new Promise((resolve) => setTimeout(resolve, 50)); // Adjust the delay as needed
 				}
 			} catch (error) {
 				failureCount++;
@@ -215,6 +221,7 @@ export default class AINoteSuggestionPlugin extends Plugin {
 				localFiles
 			);
 			deletedPaths.map(async (path) => {
+				// TODO: Handle this!
 				await this.vectorServer.onDeleteFile(path);
 			});
 			newFiles.map(async (f) => {

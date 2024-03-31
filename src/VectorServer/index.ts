@@ -3,6 +3,7 @@ import { CachedMetadata, Notice, TFile, parseYaml } from "obsidian";
 import MyPlugin, { WeaviateFile } from "../main";
 import WeaviateManager, { getWeaviateConf } from "./WeaviateManager";
 import { chunkDocument } from "../chunks";
+import { globalStore } from "src/state";
 
 interface LocalQuery {
 	files: Array<{ files: Array<WeaviateFile>; filePath: string }>;
@@ -179,6 +180,7 @@ export default class VectorServer {
 
 	async deleteAll() {
 		await this.weaviateManager.deleteClass(this.weaviateClass);
+		globalStore.getState().clear_indexed();
 
 		new Notice(
 			"Delete successful. Rescanning files and adding to database"
@@ -198,6 +200,7 @@ export default class VectorServer {
 		const maxRetries = 2;
 
 		console.info("Starting initial sync!");
+		globalStore.getState().set_n_in_vault(files.length);
 
 		for (const f of files) {
 			let retries = 0;
@@ -215,6 +218,7 @@ export default class VectorServer {
 					);
 					n_files_added++;
 
+					globalStore.getState().increment_indexed();
 					// Sleep for a short duration to avoid making too many requests per second
 					await new Promise((resolve) => setTimeout(resolve, 50)); // Adjust the delay as needed
 

@@ -13,6 +13,7 @@ interface GlobalState {
 interface GlobalStateAction {
 	clear_indexed: () => void;
 	increment_indexed: () => void;
+	set_n_indexed: (n: number) => void;
 	set_n_in_vault: (n: number) => void;
 	add_tokens_used: (n: number) => void;
 }
@@ -23,6 +24,7 @@ export const globalStore = createStore<GlobalState & GlobalStateAction>(
 		n_in_vault: 0,
 		tokens_used: 0,
 		clear_indexed: () => set(() => ({ n_indexed: 0 })),
+		set_n_indexed: (n) => set(() => ({ n_indexed: n })),
 		increment_indexed: () =>
 			set((state) => ({ n_indexed: state.n_indexed + 1 })),
 		set_n_in_vault: (n) => set(() => ({ n_in_vault: n })),

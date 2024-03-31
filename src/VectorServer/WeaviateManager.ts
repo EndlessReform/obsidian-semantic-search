@@ -359,6 +359,8 @@ export default class WeaviateManager {
 			.withClassName(this.docsClassName)
 			.withGroupBy(["path"])
 			.withFields("groupedBy { value } mtime { maximum } ")
+			// Yes, this is arbitrary. Too bad!
+			.withLimit(100_000)
 			.do();
 
 		const paths = group_query.data["Aggregate"][this.docsClassName].map(

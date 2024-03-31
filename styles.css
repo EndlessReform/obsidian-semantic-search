@@ -92,3 +92,20 @@
 .statusbar__label {
     margin-left: 3px;
 }
+
+.flex-center {
+    display: flex;
+    align-items: center;
+}
+
+.sync_modal__label {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    font-family: var(--font-monospace);
+    margin-block-end: 6px;
+}
+
+.sync_modal__progress_bar {
+    min-height: 1rem;
+    border-radius: 0.5rem;
+}

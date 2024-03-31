@@ -26,6 +26,7 @@
 		"@types/react-dom": "^18.2.23",
 		"chart.js": "^4.4.0",
 		"chartjs-plugin-zoom": "^2.0.1",
+		"lucide-react": "^0.363.0",
 		"marked": "^9.1.2",
 		"md-2-json": "^2.0.0",
 		"react": "^18.2.0",
