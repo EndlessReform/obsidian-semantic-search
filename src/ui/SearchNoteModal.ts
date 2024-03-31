@@ -1,8 +1,8 @@
 import { SuggestModal } from "obsidian";
 
-import MyPlugin from "./main";
+import MyPlugin from "../main";
 
-import { WeaviateChunk } from "./chunks";
+import { WeaviateChunk } from "../chunks";
 
 export class SearchNoteModal extends SuggestModal<WeaviateChunk> {
 	private myPlugin: MyPlugin;

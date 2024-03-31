@@ -83,11 +83,12 @@
     margin-top: 5px;    
 }
 
-.suggestion_code li{
-
-}
 
 .searchresult__preview {
     color: var(--text-muted);
     font-size: var(--font-ui-smaller);
+}
+
+.statusbar__label {
+    margin-left: 3px;
 }

@@ -11,7 +11,7 @@ import { GetOnNoteViewExtension } from "./OnNoteViewExtension";
 import { GetSearchCodeBlock } from "./SearchCodeBlock";
 import { MySettings } from "./SettingTab";
 import VectorServer from "./VectorServer";
-import { SearchNoteModal } from "./SearchNoteModal";
+import { SearchNoteModal, createStatusBarIcon, StatusBarModal } from "./ui";
 
 const DEFAULT_SETTINGS: Partial<AINoteSuggestionSettings> = {
 	weaviateAddress: "http://localhost:3636",
@@ -68,10 +68,8 @@ export default class AINoteSuggestionPlugin extends Plugin {
 	vectorServer: VectorServer;
 
 	async onload() {
-		// console.log("init Plugin")
 		await this.loadSettings();
 		this.addSettingTab(new MySettings(this.app, this));
-		this.statusBarItemEl = this.addStatusBarItem();
 		this.vectorServer = new VectorServer(this.settings.weaviateClass, this);
 
 		// show on hover settings
@@ -87,6 +85,15 @@ export default class AINoteSuggestionPlugin extends Plugin {
 		this.registerEvents();
 		this.registerCommands();
 		// this.registerEditorExtension(GetOnNoteViewExtension(this));
+
+		// UI
+		this.addRibbonIcon("file-search", "Semantic search", () =>
+			new SearchNoteModal(this).open()
+		);
+		this.statusBarItemEl = this.addStatusBarItem();
+		createStatusBarIcon(this.statusBarItemEl, this.app);
+
+		// Sidepane
 		this.registerView(
 			SIDE_PANE_VIEW_TYPE,
 			(leaf) => new SidePane(leaf, this)
@@ -95,10 +102,9 @@ export default class AINoteSuggestionPlugin extends Plugin {
 			"match",
 			GetSearchCodeBlock(this)
 		);
-		this.scanVault();
-		this.addRibbonIcon("file-search", "Semantic search", () =>
-			new SearchNoteModal(this).open()
-		);
+
+		// TODO Re-enable
+		// this.scanVault();
 	}
 
 	async onCreate(file: TFile) {
