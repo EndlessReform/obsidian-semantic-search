@@ -105,16 +105,21 @@ export function buildDocTree(
 			}
 			parent = new_node;
 		} else {
-			// Child of previous heading
-			parent.addLastChild(
-				new SectionNode(
-					section.type,
-					parent.headingLevel + 1,
-					section.position.start.offset,
-					section.position.end.offset,
-					section.position.start.line
-				)
-			);
+			try {
+				// Child of previous heading
+				parent.addLastChild(
+					new SectionNode(
+						section.type,
+						parent.headingLevel + 1,
+						section.position.start.offset,
+						section.position.end.offset,
+						section.position.start.line
+					)
+				);
+			} catch (e) {
+				console.error(parent);
+				throw e;
+			}
 		}
 	}
 
