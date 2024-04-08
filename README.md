@@ -68,7 +68,7 @@ You'll probably want to self-host a Weaviate instance using [Docker](https://www
 
 ### Setting up embeddings provider
 
-This repo accepts any OpenAI-compatible embeddings provider (more to come later). Note that right now chunking and caching are prtty rough, so it might get expensive. Put in the base URL and API key in settings.
+This repo accepts any OpenAI-compatible embeddings provider (more to come later). Note that right now chunking and caching aren't perfect, so it might get expensive. Put in the base URL and API key in settings.
 
 ## Usage
 
